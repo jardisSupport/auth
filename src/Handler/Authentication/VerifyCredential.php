@@ -6,6 +6,7 @@ namespace JardisSupport\Auth\Handler\Authentication;
 
 use Closure;
 
+/** Verifies a plain-text credential against a hash using an injected password-verification closure. */
 final class VerifyCredential
 {
     /**

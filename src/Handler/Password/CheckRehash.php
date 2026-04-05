@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace JardisSupport\Auth\Handler\Password;
 
+/** Checks whether a password hash needs to be rehashed due to algorithm or option changes. */
 final class CheckRehash
 {
     /**

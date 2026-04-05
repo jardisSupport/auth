@@ -6,6 +6,7 @@ namespace JardisSupport\Auth\Data;
 
 use JardisSupport\Contract\Auth\AuthResultInterface;
 
+/** Immutable result of an authentication attempt, combining auth outcome, session data, tokens, and events. */
 final readonly class AuthenticationResult implements AuthResultInterface
 {
     /**

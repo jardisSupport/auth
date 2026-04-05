@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use JardisSupport\Contract\Auth\HashedTokenInterface;
 use JardisSupport\Contract\Auth\TokenType;
 
+/** Immutable value object representing a SHA-256 hashed token with expiry and revocation state. */
 final readonly class HashedToken implements HashedTokenInterface
 {
     /**

@@ -7,6 +7,7 @@ namespace JardisSupport\Auth\Data;
 use DateTimeImmutable;
 use JardisSupport\Contract\Auth\SessionInterface;
 
+/** Immutable value object representing an authenticated session with subject, token hash, and metadata. */
 final readonly class Session implements SessionInterface
 {
     /**

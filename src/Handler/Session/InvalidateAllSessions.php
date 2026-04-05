@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use JardisSupport\Auth\Data\Event\AllSessionsInvalidated;
 use JardisSupport\Contract\Auth\TokenStoreInterface;
 
+/** Revokes all active tokens for a subject, effectively invalidating all their sessions. */
 final class InvalidateAllSessions
 {
     public function __construct(

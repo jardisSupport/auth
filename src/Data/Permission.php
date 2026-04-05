@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace JardisSupport\Auth\Data;
 
+/** Value object representing a resource:action permission pair with wildcard and equality matching. */
 final readonly class Permission
 {
     private function __construct(

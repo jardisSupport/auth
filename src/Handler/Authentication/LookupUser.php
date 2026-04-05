@@ -7,6 +7,7 @@ namespace JardisSupport\Auth\Handler\Authentication;
 use Closure;
 use JardisSupport\Auth\Data\Subject;
 
+/** Looks up a user's credential hash, subject, and claims by identifier via an injected closure. */
 final class LookupUser
 {
     /**

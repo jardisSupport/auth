@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace JardisSupport\Auth\Data;
 
+/** Immutable value object carrying a created session, its token strings, and associated events. */
 final readonly class SessionResult
 {
     /**

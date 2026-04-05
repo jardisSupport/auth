@@ -12,10 +12,16 @@ use JardisSupport\Auth\Data\Subject;
 use JardisSupport\Contract\Auth\TokenType;
 use JardisSupport\Contract\Auth\TokenStoreInterface;
 
+/** Validates a refresh token, revokes it, and issues a new session with fresh access and refresh tokens. */
 final class RefreshSession
 {
     /**
-     * @param Closure(Subject, array<string, mixed>): array{session: \JardisSupport\Auth\Data\Session, accessToken: string, refreshToken: string, events: list<object>} $createSession
+     * @param Closure(Subject, array<string, mixed>): array{
+     *     session: \JardisSupport\Auth\Data\Session,
+     *     accessToken: string,
+     *     refreshToken: string,
+     *     events: list<object>
+     * } $createSession
      */
     public function __construct(
         private readonly TokenStoreInterface $tokenStore,
@@ -25,7 +31,12 @@ final class RefreshSession
     }
 
     /**
-     * @return array{session: \JardisSupport\Auth\Data\Session, accessToken: string, refreshToken: string, events: list<object>}
+     * @return array{
+     *     session: \JardisSupport\Auth\Data\Session,
+     *     accessToken: string,
+     *     refreshToken: string,
+     *     events: list<object>
+     * }
      */
     public function __invoke(string $refreshTokenValue): array
     {

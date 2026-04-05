@@ -11,6 +11,7 @@ use JardisSupport\Auth\Data\Policy;
 use JardisSupport\Contract\Auth\GuardInterface;
 use JardisSupport\Contract\Auth\SessionInterface;
 
+/** Orchestrates role-based access control by checking and enforcing permissions against a policy. */
 final class Guard implements GuardInterface
 {
     private readonly Closure $checkPermission;

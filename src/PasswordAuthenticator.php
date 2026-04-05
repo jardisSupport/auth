@@ -18,6 +18,7 @@ use JardisSupport\Contract\Auth\AuthenticatorInterface;
 use JardisSupport\Contract\Auth\CredentialInterface;
 use JardisSupport\Contract\Auth\CredentialType;
 
+/** Orchestrates password-based authentication: user lookup, credential verification, and session creation. */
 final class PasswordAuthenticator implements AuthenticatorInterface
 {
     private readonly Closure $lookupUser;

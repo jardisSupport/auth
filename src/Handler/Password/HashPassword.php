@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace JardisSupport\Auth\Handler\Password;
 
+/** Hashes a plain-text password using the configured algorithm and options. */
 final class HashPassword
 {
     /**

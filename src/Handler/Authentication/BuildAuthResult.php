@@ -9,6 +9,7 @@ use JardisSupport\Auth\Data\AuthResult;
 use JardisSupport\Auth\Data\Session;
 use JardisSupport\Auth\Data\SessionResult;
 
+/** Assembles an AuthenticationResult from an auth outcome, optional session data, and collected events. */
 final class BuildAuthResult
 {
     /**

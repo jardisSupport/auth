@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace JardisSupport\Auth\Data;
 
+/** Immutable RBAC policy defining per-role allow, deny, and inheritance rules. */
 final readonly class Policy
 {
     /**

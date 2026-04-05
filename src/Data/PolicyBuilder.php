@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace JardisSupport\Auth\Data;
 
+/** Fluent builder for assembling a Policy with per-role allow, deny, and role-inclusion rules. */
 final class PolicyBuilder
 {
     /** @var array<string, array{allow: list<Permission>, deny: list<Permission>, includes: list<string>}> */

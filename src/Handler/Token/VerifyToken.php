@@ -9,6 +9,7 @@ use JardisSupport\Auth\Exception\TokenRevokedException;
 use JardisSupport\Contract\Auth\HashedTokenInterface;
 use JardisSupport\Contract\Auth\TokenType;
 
+/** Verifies a plain token against its stored hash, checking revocation, expiry, and optional type. */
 final class VerifyToken
 {
     public function __invoke(string $plainToken, HashedTokenInterface $stored, ?TokenType $expectedType = null): bool

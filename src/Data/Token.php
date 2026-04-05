@@ -7,6 +7,7 @@ namespace JardisSupport\Auth\Data;
 use DateTimeImmutable;
 use JardisSupport\Contract\Auth\TokenType;
 
+/** Immutable value object representing a plain (unhashed) authentication token. */
 final readonly class Token
 {
     private function __construct(

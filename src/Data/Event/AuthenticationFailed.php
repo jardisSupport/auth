@@ -7,6 +7,7 @@ namespace JardisSupport\Auth\Data\Event;
 use DateTimeImmutable;
 use JardisSupport\Contract\Auth\CredentialType;
 
+/** Domain event emitted when an authentication attempt fails, recording the credential type and reason. */
 final readonly class AuthenticationFailed
 {
     public function __construct(

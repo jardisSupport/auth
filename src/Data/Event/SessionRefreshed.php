@@ -6,6 +6,7 @@ namespace JardisSupport\Auth\Data\Event;
 
 use DateTimeImmutable;
 
+/** Domain event emitted when a session is refreshed, recording the old and new token hashes. */
 final readonly class SessionRefreshed
 {
     public function __construct(

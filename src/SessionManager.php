@@ -17,6 +17,7 @@ use JardisSupport\Auth\Handler\Token\VerifyToken;
 use JardisSupport\Contract\Auth\SessionInterface;
 use JardisSupport\Contract\Auth\TokenStoreInterface;
 
+/** Orchestrates session lifecycle: creation, token refresh, and invalidation with event emission. */
 final class SessionManager
 {
     private readonly Closure $createSession;

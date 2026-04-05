@@ -8,6 +8,7 @@ use Closure;
 use JardisSupport\Auth\Exception\UnauthorizedException;
 use JardisSupport\Contract\Auth\SessionInterface;
 
+/** Enforces a permission check on a session, throwing UnauthorizedException when access is denied. */
 final class AuthorizePermission
 {
     /**

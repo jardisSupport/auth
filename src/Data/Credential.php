@@ -7,6 +7,7 @@ namespace JardisSupport\Auth\Data;
 use JardisSupport\Contract\Auth\CredentialInterface;
 use JardisSupport\Contract\Auth\CredentialType;
 
+/** Immutable value object representing authentication credentials with type, value, and identifier. */
 final readonly class Credential implements CredentialInterface
 {
     private function __construct(

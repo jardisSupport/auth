@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace JardisSupport\Auth\Data;
 
+/** Value object identifying an authenticated subject by id and type (e.g. user, service). */
 final readonly class Subject
 {
     private function __construct(

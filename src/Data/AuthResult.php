@@ -6,6 +6,7 @@ namespace JardisSupport\Auth\Data;
 
 use JardisSupport\Contract\Auth\AuthResultInterface;
 
+/** Immutable value object representing the outcome of an authentication attempt. */
 final readonly class AuthResult implements AuthResultInterface
 {
     private function __construct(

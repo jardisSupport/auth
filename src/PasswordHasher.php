@@ -10,6 +10,7 @@ use JardisSupport\Auth\Handler\Password\HashPassword;
 use JardisSupport\Auth\Handler\Password\VerifyPassword;
 use JardisSupport\Contract\Auth\PasswordHasherInterface;
 
+/** Orchestrates password hashing and verification using Argon2id or bcrypt. */
 final class PasswordHasher implements PasswordHasherInterface
 {
     private readonly Closure $hashPassword;

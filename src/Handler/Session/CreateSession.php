@@ -11,6 +11,7 @@ use JardisSupport\Auth\Data\Token;
 use JardisSupport\Contract\Auth\TokenType;
 use JardisSupport\Contract\Auth\TokenStoreInterface;
 
+/** Creates a new session by generating and storing hashed access and refresh tokens for a subject. */
 final class CreateSession
 {
     /**

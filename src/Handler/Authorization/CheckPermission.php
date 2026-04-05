@@ -7,6 +7,7 @@ namespace JardisSupport\Auth\Handler\Authorization;
 use JardisSupport\Auth\Data\Policy;
 use JardisSupport\Contract\Auth\SessionInterface;
 
+/** Checks whether a session's role(s) are granted a given permission according to the policy. */
 final class CheckPermission
 {
     public function __construct(

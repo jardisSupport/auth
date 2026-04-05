@@ -6,6 +6,7 @@ namespace JardisSupport\Auth\Data\Event;
 
 use DateTimeImmutable;
 
+/** Domain event emitted when a single session token is revoked and the session is ended. */
 final readonly class SessionInvalidated
 {
     public function __construct(

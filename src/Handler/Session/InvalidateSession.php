@@ -9,6 +9,7 @@ use JardisSupport\Auth\Data\Event\SessionInvalidated;
 use JardisSupport\Contract\Auth\SessionInterface;
 use JardisSupport\Contract\Auth\TokenStoreInterface;
 
+/** Revokes the token of a single session, invalidating it in the token store. */
 final class InvalidateSession
 {
     public function __construct(
