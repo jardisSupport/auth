@@ -109,7 +109,7 @@ Plain readonly data objects — no interface, no dispatcher dependency. Caller d
 | `TokenRevokedException` | extends `AuthenticationException` |
 | `UnauthorizedException` | extends `RuntimeException`, NOT `AuthenticationException` |
 
-## CONTRACTS (`jardissupport/contract`)
+## CONTRACTS (`jardissupport/contracts`)
 | Interface | Methods |
 |-----------|---------|
 | `TokenStoreInterface` | `store`, `find`, `revoke`, `revokeAllForSubject`, `deleteExpired` — **consumer must implement** |
