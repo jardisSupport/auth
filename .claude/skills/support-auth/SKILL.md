@@ -18,7 +18,6 @@ PasswordAuthenticator lookup user → verify password → create session → Aut
 PasswordHasher        Argon2id/bcrypt via password_hash() builtins
 Guard                 RBAC permission check against immutable Policy
 ```
-All orchestrators in `src/` root. Handlers in `src/Handler/{Category}/` as invokables bound via `->__invoke(...)`.
 
 ## API / SIGNATURES
 
@@ -139,4 +138,3 @@ $guard->authorize($session, 'article:write'); // void or UnauthorizedException
 ## RULES
 - Events created and returned, never dispatched internally. Public error messages stay generic; details only in Events.
 - `deny` overrides `allow`; role inheritance via `includes()`.
-- `tests/Support/` for fakes (e.g. `InMemoryTokenStore`). Test paths mirror `src/`.
