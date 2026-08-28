@@ -302,7 +302,7 @@ tests/Integration/
 
 ## Contracts
 
-Defined in `jardissupport/contracts` — implement these in your infrastructure:
+Requires `jardissupport/contracts` ^1.0 || ^2.0 (ab dieser Version). Defined in `jardissupport/contracts` — implement these in your infrastructure:
 
 | Interface | Purpose |
 |-----------|---------|
