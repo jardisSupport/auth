@@ -4,7 +4,7 @@ description: Session management, password hashing, RBAC, password authentication
 user-invocable: false
 zone: post-active
 persona: C
-prerequisites: [rules-architecture, rules-patterns]
+prerequisites: [foundation-architecture, foundation-patterns]
 next: []
 ---
 
