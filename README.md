@@ -8,13 +8,13 @@
 
 > Part of **[Jardis](https://jardis.io)** — the Domain-Driven Design platform for PHP. You model your domain; Jardis generates the production-ready hexagonal code (DTOs, Command/Query handlers, repositories, persistence). This package is part of the open-source foundation that generated code runs on.
 
-**Authentication and authorization without framework coupling.** A focused RBAC for PHP covering opaque tokens, session management, password hashing, and role-based access control — designed for DDD applications. No HTTP layer, no JWT, no third-party runtime dependencies beyond PHP built-ins and the Jardis contract. Pure support package.
+**Authentication and authorization without framework coupling.** A focused RBAC for PHP covering opaque tokens, session management, password hashing, and role-based access control — designed for DDD applications. No HTTP layer, no JWT, no third-party runtime dependencies beyond PHP built-ins and the Jardis packages `contracts` and `dbquery`. Pure support package.
 
 ---
 
 ## Why This Package?
 
-- **Four classes to learn** — `SessionManager`, `PasswordHasher`, `Guard`, `PasswordAuthenticator`. Everything else is data
+- **Six classes to learn** — `SessionManager`, `PasswordHasher`, `Guard`, `PasswordAuthenticator`, `TokenAuthenticator`, `DbTokenStore`. Everything else is data
 - **Opaque tokens** — server-side state, SHA-256 hashed storage, no JWT complexity
 - **Token rotation** — automatic refresh with old-token revocation
 - **RBAC as Value Objects** — policies are immutable, defined in code, not in a database
@@ -172,25 +172,58 @@ $event = $sessionManager->invalidateAll('user:user-42');
 
 ## Token Store
 
-The package defines `TokenStoreInterface` — you implement it in your infrastructure layer:
+`DbTokenStore` implements `TokenStoreInterface` on a `DbConnectionInterface` (`jardissupport/contracts`) using `jardissupport/dbquery` — no raw SQL, no own PDO. Only the SHA-256 hash of a token is stored, never the plain value.
 
 ```php
-use JardisSupport\Contract\Auth\TokenStoreInterface;
-use JardisSupport\Auth\Data\HashedToken;
+use JardisSupport\Auth\DbTokenStore;
 
-class DatabaseTokenStore implements TokenStoreInterface
-{
-    public function __construct(private PDO $pdo) {}
+$store = new DbTokenStore($connection);                 // table: auth_tokens
+$store = new DbTokenStore($connection, 'my_tokens');    // custom table name (plain identifier)
 
-    public function store(HashedToken $token): void { /* INSERT */ }
-    public function find(string $hash): ?HashedToken { /* SELECT */ }
-    public function revoke(string $hash): void { /* UPDATE revoked = true */ }
-    public function revokeAllForSubject(string $subject): void { /* UPDATE WHERE subject = ? */ }
-    public function deleteExpired(): int { /* DELETE WHERE expires_at < NOW() */ }
+$sessionManager = new SessionManager($store);
+```
+
+**Table DDL** ships with the package (one file per dialect, `auth_tokens`, timestamps in UTC):
+
+| Dialect | File |
+|---------|------|
+| MySQL / MariaDB | `vendor/jardissupport/auth/resources/sql/mysql.sql` |
+| PostgreSQL | `vendor/jardissupport/auth/resources/sql/pgsql.sql` |
+| SQLite | `vendor/jardissupport/auth/resources/sql/sqlite.sql` |
+
+Apply the file matching `$connection->getDriverName()` once in your migration/setup (all statements are `IF NOT EXISTS`). For another table name replace `auth_tokens` in the file.
+
+Prefer your own store (Redis, ...)? Implement `TokenStoreInterface` yourself; an `InMemoryTokenStore` for tests lives in `tests/Support/`.
+
+---
+
+## Authenticate a Token (request → subject + tenant)
+
+`TokenAuthenticator` resolves an access token to a verified session: a valid, non-revoked, non-expired token yields a successful `TenantAwareAuthResultInterface` with subject **and** tenant; any other token yields a failure with a reason.
+
+```php
+use JardisSupport\Auth\Data\Credential;
+use JardisSupport\Auth\TokenAuthenticator;
+use JardisSupport\Contract\Auth\RequestAttribute;
+
+// The tenant is a claim of the access token, set when the session is created:
+$session = $sessionManager->create(Subject::from('42'), ['tenant' => 'acme']);
+
+$authenticator = new TokenAuthenticator($store);               // tenant claim: 'tenant'
+$authenticator = new TokenAuthenticator($store, tenantClaim: 'org');
+
+$result = $authenticator->authenticate(Credential::token($bearerToken));
+
+if ($result->isSuccess()) {
+    $request = $request
+        ->withAttribute(RequestAttribute::SUBJECT, $result->getSubject())  // 'user:42'
+        ->withAttribute(RequestAttribute::TENANT, $result->getTenant());   // 'acme' | null
+} else {
+    $result->getReason(); // 'Invalid token' | 'Token expired' | 'Token revoked' | 'Unsupported credential type'
 }
 ```
 
-An `InMemoryTokenStore` is included in `tests/Support/` for testing.
+Only `TokenType::Access` tokens are accepted by default (4th constructor argument changes that). The attribute names `RequestAttribute::SUBJECT` (`jardisSubject`) and `RequestAttribute::TENANT` (`jardisTenant`) live in `jardissupport/contracts` (>= 2.8.0).
 
 ---
 
@@ -240,7 +273,7 @@ try {
 
 ## Architecture
 
-The user sees four orchestrators. Internally, each delegates to invokable handlers:
+The user sees six orchestrators. Internally, each delegates to invokable handlers:
 
 ```
 SessionManager (Orchestrator)
@@ -253,6 +286,13 @@ PasswordAuthenticator (Orchestrator)
   ├── Handler/Authentication/LookupUser      resolve user via $userLookup closure
   ├── Handler/Authentication/VerifyCredential verify password against hash
   └── Handler/Authentication/BuildAuthResult  assemble AuthenticationResult + events
+
+TokenAuthenticator (Orchestrator)
+  └── Handler/Authentication/AuthenticateToken  lookup → verify → subject + tenant claim → TenantAuthResult
+
+DbTokenStore (Orchestrator)
+  ├── Handler/TokenStore/StoreToken · FindToken · RevokeToken · RevokeSubjectTokens · DeleteExpiredTokens
+  └── Handler/TokenStore/ExecuteQuery       dbquery builder → prepared statement on the connection
 
 PasswordHasher (Orchestrator)
   ├── Handler/Password/HashPassword         hash via password_hash()
@@ -302,7 +342,7 @@ tests/Integration/
 
 ## Contracts
 
-Requires `jardissupport/contracts` ^1.0 || ^2.0 (ab dieser Version). Defined in `jardissupport/contracts` — implement these in your infrastructure:
+Requires `jardissupport/contracts` ^2.8 and `jardissupport/dbquery` ^1.1. Defined in `jardissupport/contracts`:
 
 | Interface | Purpose |
 |-----------|---------|
@@ -310,6 +350,8 @@ Requires `jardissupport/contracts` ^1.0 || ^2.0 (ab dieser Version). Defined in 
 | `PasswordHasherInterface` | Hash, verify, needsRehash |
 | `GuardInterface` | Permission check + authorize |
 | `AuthenticatorInterface` | Authenticate credentials, return AuthResult |
+| `TenantAwareAuthResultInterface` | AuthResult plus `getTenant()` (returned by `TokenAuthenticator`) |
+| `RequestAttribute` | Request attribute names `SUBJECT` / `TENANT` for the authenticated session |
 
 ---
 
@@ -319,7 +361,7 @@ Auth is wired directly — constructor injection, no framework hook. `DomainKern
 
 *(Earlier docs described this as "no service hook in `DomainApp`" — `DomainApp` was removed in the Kernel-Entkopplung refactor. The fact is unchanged, only the vocabulary: today's Koffer is `DomainKernel`, consumed by the generated `{Domain}Context`.)*
 
-- **TokenStore**: Implement in infrastructure (database, Redis)
+- **TokenStore**: `DbTokenStore` on the DomainKernel database connection, or implement `TokenStoreInterface` yourself (Redis, ...)
 - **Policy**: Define as value object in application layer
 - **Guard**: Instantiate in application layer, inject Policy
 
@@ -349,7 +391,7 @@ AUTH_REFRESH_TOKEN_TTL=604800
 - **No HTTP layer** — no cookies, no middleware, no `session_start()`
 - **No user management** — no user model, no registration flow
 - **No rate limiting** — brute-force protection is infrastructure concern
-- **No token persistence** — only the interface. You implement the store
+- **No other token persistence than SQL** — `DbTokenStore` covers MySQL/MariaDB, PostgreSQL, SQLite; anything else: implement `TokenStoreInterface`
 - **No event dispatching** — events are returned to the caller, not dispatched internally
 
 ---
@@ -359,7 +401,7 @@ AUTH_REFRESH_TOKEN_TTL=604800
 ```bash
 cp .env.example .env    # One-time setup
 make install             # Install dependencies
-make phpunit             # Run tests
+make phpunit             # Run tests (starts a MariaDB 11.8 service, reachable inside the Compose network only)
 make phpstan             # Static analysis (Level 8)
 make phpcs               # Coding standards (PSR-12)
 ```
