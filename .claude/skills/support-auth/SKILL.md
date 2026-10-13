@@ -1,10 +1,10 @@
 ---
 name: support-auth
-description: Session management, password hashing, RBAC, password authentication with events.
+description: Session management, password hashing, RBAC, password and token authentication (subject + tenant), SQL token store, events.
 user-invocable: false
 zone: post-active
 persona: C
-prerequisites: [foundation-architecture, foundation-patterns]
+prerequisites: [foundation-architecture, foundation-patterns, support-dbquery]
 next: []
 ---
 
@@ -15,6 +15,8 @@ next: []
 ```
 SessionManager        create/refresh/invalidate sessions → SessionResult + events
 PasswordAuthenticator lookup user → verify password → create session → AuthenticationResult
+TokenAuthenticator    token credential → verified session: subject + tenant (TenantAuthResult)
+DbTokenStore          TokenStoreInterface on DbConnectionInterface via jardissupport/dbquery (hash only)
 PasswordHasher        Argon2id/bcrypt via password_hash() builtins
 Guard                 RBAC permission check against immutable Policy
 ```
@@ -37,6 +39,28 @@ $sm->refresh(string $refreshTokenValue): SessionResult
     // Returns: events=[SessionCreated, SessionRefreshed]
 $sm->invalidate(SessionInterface $session): SessionInvalidated
 $sm->invalidateAll(string $subject): AllSessionsInvalidated
+```
+
+### DbTokenStore
+```php
+new DbTokenStore(DbConnectionInterface $connection, string $table = 'auth_tokens')
+// implements TokenStoreInterface; table DDL: resources/sql/{mysql,pgsql,sqlite}.sql (apply once per project)
+// timestamps UTC; claims JSON in a TEXT column; store() of an existing hash throws PDOException
+```
+
+### TokenAuthenticator
+```php
+new TokenAuthenticator(
+    TokenStoreInterface $tokenStore,
+    VerifyToken $verifyToken = new VerifyToken(),
+    string $tenantClaim = 'tenant',          // claim of the access token that carries the tenant
+    TokenType $expectedType = TokenType::Access,
+)
+$a->authenticate(Credential::token($plain)): TenantAuthResult   // implements TenantAwareAuthResultInterface
+// success: isSuccess(), getSubject() 'user:42', getTenant() ?string, getReason() null
+// failure: getReason() 'Invalid token' | 'Token expired' | 'Token revoked' | 'Unsupported credential type'
+// Set the tenant at login: $sm->create(Subject::from('42'), ['tenant' => 'acme'])
+// Transports store the result under RequestAttribute::SUBJECT / ::TENANT (jardissupport/contracts >= 2.8)
 ```
 
 ### PasswordHasher
@@ -111,7 +135,7 @@ Plain readonly data objects — no interface, no dispatcher dependency. Caller d
 ## CONTRACTS (`jardissupport/contracts`)
 | Interface | Methods |
 |-----------|---------|
-| `TokenStoreInterface` | `store`, `find`, `revoke`, `revokeAllForSubject`, `deleteExpired` — **consumer must implement** |
+| `TokenStoreInterface` | `store`, `find`, `revoke`, `revokeAllForSubject`, `deleteExpired` — `DbTokenStore` ships; or implement your own |
 | `PasswordHasherInterface` | `hash`, `verify`, `needsRehash` |
 | `GuardInterface` | `check`, `authorize` |
 | `AuthenticatorInterface` | `authenticate(CredentialInterface): AuthResultInterface` |
@@ -119,6 +143,8 @@ Plain readonly data objects — no interface, no dispatcher dependency. Caller d
 | `HashedTokenInterface` | `getHash`, `getType`, `getSubject`, `getClaims`, `getExpiresAt`, `getCreatedAt`, `isExpired`, `isRevoked` |
 | `CredentialInterface` | `getType`, `getValue`, `getIdentifier` |
 | `AuthResultInterface` | `isSuccess`, `getSubject`, `getReason` |
+| `TenantAwareAuthResultInterface` | extends `AuthResultInterface` + `getTenant(): ?string` |
+| `RequestAttribute` | final constants `SUBJECT = 'jardisSubject'`, `TENANT = 'jardisTenant'` |
 | `TokenType` (enum) | `Access`, `Refresh`, `ApiKey`, `Verification`, `PasswordReset` |
 | `CredentialType` (enum) | `Password`, `ApiKey`, `Token` |
 

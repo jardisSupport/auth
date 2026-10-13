@@ -17,9 +17,33 @@ services:
       - XDEBUG_CLIENT_HOST=${XDEBUG_CLIENT_HOST:-host.docker.internal}
       - XDEBUG_CLIENT_PORT=${XDEBUG_CLIENT_PORT:-9003}
       - XDEBUG_LOG_LEVEL=${XDEBUG_LOG_LEVEL:-0}
+      # Database connection for the TokenStore integration tests (Compose network only)
+      - MARIADB_HOST=mariadb
+      - MARIADB_PORT=${MARIADB_PORT:-3306}
+      - MARIADB_DATABASE=${MARIADB_DATABASE:-test_db}
+      - MARIADB_USER=${MARIADB_USER:-test_user}
+      - MARIADB_PASSWORD=${MARIADB_PASSWORD:-test_password}
     volumes:
       - ../:/app
     working_dir: /app
+    networks:
+      - auth-network
+
+  mariadb:
+    image: mariadb:${MARIADB_VERSION:-11.8}
+    environment:
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD:-root_password}
+      - MARIADB_DATABASE=${MARIADB_DATABASE:-test_db}
+      - MARIADB_USER=${MARIADB_USER:-test_user}
+      - MARIADB_PASSWORD=${MARIADB_PASSWORD:-test_password}
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
     networks:
       - auth-network
 
