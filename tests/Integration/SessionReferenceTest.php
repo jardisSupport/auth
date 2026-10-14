@@ -4,39 +4,30 @@ declare(strict_types=1);
 
 namespace JardisSupport\Auth\Tests\Integration;
 
-use JardisAdapter\DbConnection\Factory\ConnectionFactory;
 use JardisSupport\Auth\Data\Credential;
 use JardisSupport\Auth\Data\Event\SessionInvalidated;
 use JardisSupport\Auth\Data\HashedToken;
 use JardisSupport\Auth\Data\Subject;
-use JardisSupport\Auth\DbTokenStore;
+use JardisSupport\Auth\Exception\AuthenticationException;
 use JardisSupport\Auth\SessionManager;
-use JardisSupport\Auth\Tests\Support\TokenTable;
-use JardisSupport\Auth\TokenAuthenticator;
+use JardisSupport\Auth\SignedTokenAuthenticator;
+use JardisSupport\Auth\Tests\Support\InMemoryTokenStore;
 use JardisSupport\Contract\Auth\SessionAwareAuthResultInterface;
 use PHPUnit\Framework\TestCase;
 
-/** Token session resolves to subject id and session reference; the reference revokes exactly that session. */
+/** A signed-token session resolves to subject id and session reference; the reference revokes exactly that session. */
 final class SessionReferenceTest extends TestCase
 {
-    private DbTokenStore $store;
+    private InMemoryTokenStore $store;
     private SessionManager $sessions;
-    private TokenAuthenticator $authenticator;
+    private SignedTokenAuthenticator $authenticator;
 
     protected function setUp(): void
     {
-        $connection = (new ConnectionFactory())->mysql(
-            host: (string) getenv('MARIADB_HOST'),
-            user: (string) getenv('MARIADB_USER'),
-            password: (string) getenv('MARIADB_PASSWORD'),
-            database: (string) getenv('MARIADB_DATABASE'),
-            port: (int) getenv('MARIADB_PORT'),
-        );
-        TokenTable::recreate($connection);
-
-        $this->store = new DbTokenStore($connection);
-        $this->sessions = new SessionManager($this->store);
-        $this->authenticator = new TokenAuthenticator($this->store);
+        $key = str_repeat('k', 32);
+        $this->store = new InMemoryTokenStore();
+        $this->sessions = new SessionManager($this->store, $key);
+        $this->authenticator = new SignedTokenAuthenticator($key);
     }
 
     public function testResultCarriesSubjectIdAndSessionReference(): void
@@ -51,6 +42,7 @@ final class SessionReferenceTest extends TestCase
         self::assertSame('42', $result->getSubjectId());
         self::assertSame('acme', $result->getTenant());
         self::assertSame($created->session->tokenHash, $result->getSessionReference());
+        self::assertSame(HashedToken::hashOf($created->refreshToken), $result->getSessionReference());
     }
 
     public function testSubjectIdIsTheBareIdForOtherSubjectTypes(): void
@@ -72,7 +64,7 @@ final class SessionReferenceTest extends TestCase
         self::assertNull($result->getSessionReference());
     }
 
-    public function testInvalidateByReferenceRevokesOnlyThatSession(): void
+    public function testInvalidateByReferenceRevokesOnlyThatSessionsRefresh(): void
     {
         $first = $this->sessions->create(Subject::from('42'), ['tenant' => 'acme']);
         $second = $this->sessions->create(Subject::from('42'), ['tenant' => 'acme']);
@@ -82,15 +74,15 @@ final class SessionReferenceTest extends TestCase
 
         $event = $this->sessions->invalidateByReference($reference);
 
-        $revoked = $this->authenticator->authenticate(Credential::token($first->accessToken));
-        $stillValid = $this->authenticator->authenticate(Credential::token($second->accessToken));
-        self::assertFalse($revoked->isSuccess());
-        self::assertSame('Token revoked', $revoked->getReason());
-        self::assertTrue($stillValid->isSuccess());
-        self::assertSame('user:42', $stillValid->getSubject());
         self::assertInstanceOf(SessionInvalidated::class, $event);
         self::assertSame('user:42', $event->subject);
         self::assertSame($reference, $event->tokenHash);
+        $this->expectException(AuthenticationException::class);
+        try {
+            $this->sessions->refresh($first->refreshToken);
+        } finally {
+            self::assertSame('user:42', $this->sessions->refresh($second->refreshToken)->session->subject);
+        }
     }
 
     public function testInvalidateByUnknownReferenceIsANoOp(): void
@@ -100,17 +92,6 @@ final class SessionReferenceTest extends TestCase
         $event = $this->sessions->invalidateByReference(HashedToken::hashOf('never-issued'));
 
         self::assertSame('', $event->subject);
-        self::assertTrue($this->authenticator->authenticate(Credential::token($created->accessToken))->isSuccess());
-    }
-
-    public function testHashOfEqualsTheStoredHash(): void
-    {
-        $created = $this->sessions->create(Subject::from('42'));
-
-        $stored = $this->store->find(HashedToken::hashOf($created->accessToken));
-
-        self::assertNotNull($stored);
-        self::assertSame($created->session->tokenHash, $stored->getHash());
-        self::assertSame(hash('sha256', $created->accessToken), HashedToken::hashOf($created->accessToken));
+        self::assertSame('user:42', $this->sessions->refresh($created->refreshToken)->session->subject);
     }
 }

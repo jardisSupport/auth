@@ -10,19 +10,19 @@ use JardisSupport\Auth\Data\Credential;
 use JardisSupport\Auth\Data\HashedToken;
 use JardisSupport\Auth\Data\Subject;
 use JardisSupport\Auth\DbTokenStore;
-use JardisSupport\Auth\SessionManager;
 use JardisSupport\Auth\Tests\Support\TokenTable;
 use JardisSupport\Auth\TokenAuthenticator;
+use JardisSupport\Auth\TokenIssuer;
 use JardisSupport\Contract\Auth\AuthenticatorInterface;
 use JardisSupport\Contract\Auth\TenantAwareAuthResultInterface;
 use JardisSupport\Contract\Auth\TokenType;
 use PHPUnit\Framework\TestCase;
 
-/** TokenAuthenticator resolves a token to subject and tenant, backed by DbTokenStore on real MariaDB. */
+/** TokenAuthenticator resolves a stored token to subject and tenant, backed by DbTokenStore on real MariaDB. */
 final class TokenAuthenticatorTest extends TestCase
 {
     private DbTokenStore $store;
-    private SessionManager $sessions;
+    private TokenIssuer $issuer;
     private TokenAuthenticator $authenticator;
 
     protected function setUp(): void
@@ -37,15 +37,15 @@ final class TokenAuthenticatorTest extends TestCase
         TokenTable::recreate($connection);
 
         $this->store = new DbTokenStore($connection);
-        $this->sessions = new SessionManager($this->store);
+        $this->issuer = new TokenIssuer($this->store);
         $this->authenticator = new TokenAuthenticator($this->store);
     }
 
     public function testValidAccessTokenYieldsSubjectAndTenant(): void
     {
-        $created = $this->sessions->create(Subject::from('42'), ['tenant' => 'acme']);
+        $created = $this->issuer->issue(TokenType::Access, Subject::from('42'), 900, ['tenant' => 'acme']);
 
-        $result = $this->authenticator->authenticate(Credential::token($created->accessToken));
+        $result = $this->authenticator->authenticate(Credential::token($created->plain));
 
         self::assertInstanceOf(TenantAwareAuthResultInterface::class, $result);
         self::assertTrue($result->isSuccess());
@@ -61,9 +61,9 @@ final class TokenAuthenticatorTest extends TestCase
 
     public function testValidTokenWithoutTenantClaimYieldsNullTenant(): void
     {
-        $created = $this->sessions->create(Subject::from('7'));
+        $created = $this->issuer->issue(TokenType::Access, Subject::from('7'), 900);
 
-        $result = $this->authenticator->authenticate(Credential::token($created->accessToken));
+        $result = $this->authenticator->authenticate(Credential::token($created->plain));
 
         self::assertTrue($result->isSuccess());
         self::assertSame('user:7', $result->getSubject());
@@ -72,10 +72,10 @@ final class TokenAuthenticatorTest extends TestCase
 
     public function testCustomTenantClaimName(): void
     {
-        $created = $this->sessions->create(Subject::from('1'), ['org' => 'globex', 'tenant' => 'ignored']);
+        $created = $this->issuer->issue(TokenType::Access, Subject::from('1'), 900, ['org' => 'globex', 'tenant' => 'ignored']);
         $authenticator = new TokenAuthenticator($this->store, tenantClaim: 'org');
 
-        $result = $authenticator->authenticate(Credential::token($created->accessToken));
+        $result = $authenticator->authenticate(Credential::token($created->plain));
 
         self::assertSame('globex', $result->getTenant());
     }
@@ -101,10 +101,10 @@ final class TokenAuthenticatorTest extends TestCase
 
     public function testRevokedTokenIsRejectedWithReason(): void
     {
-        $created = $this->sessions->create(Subject::from('42'), ['tenant' => 'acme']);
-        $this->store->revoke(hash('sha256', $created->accessToken));
+        $created = $this->issuer->issue(TokenType::Access, Subject::from('42'), 900, ['tenant' => 'acme']);
+        $this->store->revoke(hash('sha256', $created->plain));
 
-        $result = $this->authenticator->authenticate(Credential::token($created->accessToken));
+        $result = $this->authenticator->authenticate(Credential::token($created->plain));
 
         self::assertFalse($result->isSuccess());
         self::assertNull($result->getTenant());
@@ -113,10 +113,10 @@ final class TokenAuthenticatorTest extends TestCase
 
     public function testRevokeAllForSubjectInvalidatesAuthentication(): void
     {
-        $created = $this->sessions->create(Subject::from('42'), ['tenant' => 'acme']);
-        $this->sessions->invalidateAll('user:42');
+        $created = $this->issuer->issue(TokenType::Access, Subject::from('42'), 900, ['tenant' => 'acme']);
+        $this->store->revokeAllForSubject('user:42');
 
-        $result = $this->authenticator->authenticate(Credential::token($created->accessToken));
+        $result = $this->authenticator->authenticate(Credential::token($created->plain));
 
         self::assertFalse($result->isSuccess());
         self::assertSame('Token revoked', $result->getReason());
@@ -133,9 +133,9 @@ final class TokenAuthenticatorTest extends TestCase
 
     public function testRefreshTokenIsNotAcceptedAsAccessToken(): void
     {
-        $created = $this->sessions->create(Subject::from('42'), ['tenant' => 'acme']);
+        $created = $this->issuer->issue(TokenType::Refresh, Subject::from('42'), 900, ['tenant' => 'acme']);
 
-        $result = $this->authenticator->authenticate(Credential::token($created->refreshToken));
+        $result = $this->authenticator->authenticate(Credential::token($created->plain));
 
         self::assertFalse($result->isSuccess());
         self::assertSame('Invalid token', $result->getReason());
@@ -168,9 +168,9 @@ final class TokenAuthenticatorTest extends TestCase
 
     public function testNonStringTenantClaimIsTreatedAsAbsent(): void
     {
-        $created = $this->sessions->create(Subject::from('5'), ['tenant' => ['not', 'a', 'string']]);
+        $created = $this->issuer->issue(TokenType::Access, Subject::from('5'), 900, ['tenant' => ['not', 'a', 'string']]);
 
-        $result = $this->authenticator->authenticate(Credential::token($created->accessToken));
+        $result = $this->authenticator->authenticate(Credential::token($created->plain));
 
         self::assertTrue($result->isSuccess());
         self::assertNull($result->getTenant());
