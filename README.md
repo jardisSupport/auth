@@ -166,6 +166,10 @@ $event = $sessionManager->invalidate($session);
 
 // All sessions for a subject (logout everywhere) — returns AllSessionsInvalidated event
 $event = $sessionManager->invalidateAll('user:user-42');
+
+// Exactly the session behind a session reference (see "Authenticate a Token") — other sessions
+// of the same subject stay valid; idempotent, an unknown reference revokes nothing
+$event = $sessionManager->invalidateByReference($result->getSessionReference());
 ```
 
 ---
@@ -199,7 +203,7 @@ Prefer your own store (Redis, ...)? Implement `TokenStoreInterface` yourself; an
 
 ## Authenticate a Token (request → subject + tenant)
 
-`TokenAuthenticator` resolves an access token to a verified session: a valid, non-revoked, non-expired token yields a successful `TenantAwareAuthResultInterface` with subject **and** tenant; any other token yields a failure with a reason.
+`TokenAuthenticator` resolves an access token to a verified session: a valid, non-revoked, non-expired token yields a successful `SessionAwareAuthResultInterface` with qualified subject, bare subject id, tenant **and** a session reference; any other token yields a failure with a reason.
 
 ```php
 use JardisSupport\Auth\Data\Credential;
@@ -216,14 +220,18 @@ $result = $authenticator->authenticate(Credential::token($bearerToken));
 
 if ($result->isSuccess()) {
     $request = $request
-        ->withAttribute(RequestAttribute::SUBJECT, $result->getSubject())  // 'user:42'
-        ->withAttribute(RequestAttribute::TENANT, $result->getTenant());   // 'acme' | null
+        ->withAttribute(RequestAttribute::SUBJECT, $result->getSubject())           // 'user:42'
+        ->withAttribute(RequestAttribute::SUBJECT_ID, $result->getSubjectId())       // '42'
+        ->withAttribute(RequestAttribute::TENANT, $result->getTenant())              // 'acme' | null
+        ->withAttribute(RequestAttribute::SESSION, $result->getSessionReference());  // hash of the access token
 } else {
     $result->getReason(); // 'Invalid token' | 'Token expired' | 'Token revoked' | 'Unsupported credential type'
 }
 ```
 
-Only `TokenType::Access` tokens are accepted by default (4th constructor argument changes that). The attribute names `RequestAttribute::SUBJECT` (`jardisSubject`) and `RequestAttribute::TENANT` (`jardisTenant`) live in `jardissupport/contracts` (>= 2.8.0).
+Only `TokenType::Access` tokens are accepted by default (4th constructor argument changes that). The attribute names `RequestAttribute::SUBJECT` (`jardisSubject`) and `RequestAttribute::TENANT` (`jardisTenant`) live in `jardissupport/contracts` (>= 2.8.0); `SUBJECT_ID`, `SESSION` and `SessionAwareAuthResultInterface` since 2.9.0.
+
+The **session reference** is the SHA-256 hash of the presented access token (`getSessionReference()`); `SessionManager::invalidateByReference()` revokes exactly that session. Any other place that needs the hash of a plain token uses the one function `HashedToken::hashOf(string $plainToken): string` — never `hash('sha256', …)` in the consumer. `Subject::parse('user:42')` is the inverse of `Subject::toString()`.
 
 ---
 
@@ -288,7 +296,7 @@ PasswordAuthenticator (Orchestrator)
   └── Handler/Authentication/BuildAuthResult  assemble AuthenticationResult + events
 
 TokenAuthenticator (Orchestrator)
-  └── Handler/Authentication/AuthenticateToken  lookup → verify → subject + tenant claim → TenantAuthResult
+  └── Handler/Authentication/AuthenticateToken  lookup → verify → subject + subject id + tenant claim + session reference → TenantAuthResult
 
 DbTokenStore (Orchestrator)
   ├── Handler/TokenStore/StoreToken · FindToken · RevokeToken · RevokeSubjectTokens · DeleteExpiredTokens
@@ -342,7 +350,7 @@ tests/Integration/
 
 ## Contracts
 
-Requires `jardissupport/contracts` ^2.8 and `jardissupport/dbquery` ^1.1. Defined in `jardissupport/contracts`:
+Requires `jardissupport/contracts` ^2.9 and `jardissupport/dbquery` ^1.1. Defined in `jardissupport/contracts`:
 
 | Interface | Purpose |
 |-----------|---------|
@@ -350,8 +358,9 @@ Requires `jardissupport/contracts` ^2.8 and `jardissupport/dbquery` ^1.1. Define
 | `PasswordHasherInterface` | Hash, verify, needsRehash |
 | `GuardInterface` | Permission check + authorize |
 | `AuthenticatorInterface` | Authenticate credentials, return AuthResult |
-| `TenantAwareAuthResultInterface` | AuthResult plus `getTenant()` (returned by `TokenAuthenticator`) |
-| `RequestAttribute` | Request attribute names `SUBJECT` / `TENANT` for the authenticated session |
+| `TenantAwareAuthResultInterface` | AuthResult plus `getTenant()` |
+| `SessionAwareAuthResultInterface` | TenantAware plus `getSubjectId()` and `getSessionReference()` (returned by `TokenAuthenticator`) |
+| `RequestAttribute` | Request attribute names `SUBJECT` / `SUBJECT_ID` / `TENANT` / `SESSION` for the authenticated session |
 
 ---
 

@@ -4,27 +4,32 @@ declare(strict_types=1);
 
 namespace JardisSupport\Auth\Data;
 
-use JardisSupport\Contract\Auth\TenantAwareAuthResultInterface;
+use JardisSupport\Contract\Auth\SessionAwareAuthResultInterface;
 
-/** Immutable authentication outcome that carries subject and tenant of a resolved token session. */
-final readonly class TenantAuthResult implements TenantAwareAuthResultInterface
+/**
+ * Immutable authentication outcome of a resolved token session: qualified subject (`type:id`),
+ * bare subject id, tenant and the session reference (hash of the presented access token).
+ */
+final readonly class TenantAuthResult implements SessionAwareAuthResultInterface
 {
     private function __construct(
         public bool $success,
         public ?string $subject,
+        public ?string $subjectId,
         public ?string $tenant,
+        public ?string $sessionReference,
         public ?string $reason,
     ) {
     }
 
-    public static function success(string $subject, ?string $tenant): self
+    public static function success(string $subject, ?string $tenant, ?string $sessionReference = null): self
     {
-        return new self(true, $subject, $tenant, null);
+        return new self(true, $subject, Subject::parse($subject)->id, $tenant, $sessionReference, null);
     }
 
     public static function failure(string $reason): self
     {
-        return new self(false, null, null, $reason);
+        return new self(false, null, null, null, null, $reason);
     }
 
     public function isSuccess(): bool
@@ -37,9 +42,19 @@ final readonly class TenantAuthResult implements TenantAwareAuthResultInterface
         return $this->subject;
     }
 
+    public function getSubjectId(): ?string
+    {
+        return $this->subjectId;
+    }
+
     public function getTenant(): ?string
     {
         return $this->tenant;
+    }
+
+    public function getSessionReference(): ?string
+    {
+        return $this->sessionReference;
     }
 
     public function getReason(): ?string

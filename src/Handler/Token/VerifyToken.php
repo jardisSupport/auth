@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace JardisSupport\Auth\Handler\Token;
 
+use JardisSupport\Auth\Data\HashedToken;
 use JardisSupport\Auth\Exception\TokenExpiredException;
 use JardisSupport\Auth\Exception\TokenRevokedException;
 use JardisSupport\Contract\Auth\HashedTokenInterface;
@@ -14,7 +15,7 @@ final class VerifyToken
 {
     public function __invoke(string $plainToken, HashedTokenInterface $stored, ?TokenType $expectedType = null): bool
     {
-        $hash = hash('sha256', $plainToken);
+        $hash = HashedToken::hashOf($plainToken);
 
         if (!hash_equals($stored->getHash(), $hash)) {
             return false;
