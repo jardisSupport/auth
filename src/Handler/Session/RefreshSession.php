@@ -6,6 +6,7 @@ namespace JardisSupport\Auth\Handler\Session;
 
 use Closure;
 use JardisSupport\Auth\Data\Event\SessionRefreshed;
+use JardisSupport\Auth\Data\HashedToken;
 use JardisSupport\Auth\Exception\AuthenticationException;
 use JardisSupport\Auth\Handler\Token\VerifyToken;
 use JardisSupport\Auth\Data\Subject;
@@ -40,7 +41,7 @@ final class RefreshSession
      */
     public function __invoke(string $refreshTokenValue): array
     {
-        $hash = hash('sha256', $refreshTokenValue);
+        $hash = HashedToken::hashOf($refreshTokenValue);
         $storedToken = $this->tokenStore->find($hash);
 
         if ($storedToken === null) {
@@ -51,7 +52,7 @@ final class RefreshSession
 
         $this->tokenStore->revoke($hash);
 
-        $subject = $this->parseSubject($storedToken->getSubject() ?? '');
+        $subject = Subject::parse($storedToken->getSubject() ?? '');
 
         $createResult = ($this->createSession)($subject, $storedToken->getClaims());
 
@@ -68,16 +69,5 @@ final class RefreshSession
             'refreshToken' => $createResult['refreshToken'],
             'events' => [...$createResult['events'], $refreshedEvent],
         ];
-    }
-
-    private function parseSubject(string $subjectString): Subject
-    {
-        $parts = explode(':', $subjectString, 2);
-
-        if (count($parts) === 2) {
-            return Subject::from($parts[1], $parts[0]);
-        }
-
-        return Subject::from($subjectString);
     }
 }

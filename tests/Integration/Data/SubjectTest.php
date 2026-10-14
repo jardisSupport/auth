@@ -128,4 +128,29 @@ final class SubjectTest extends TestCase
         // Act & Assert
         $this->assertSame('service:svc-7', $subject->toString());
     }
+
+    // --- Subject::parse() ---
+
+    public function testParseSplitsTypeAndIdAtTheFirstColon(): void
+    {
+        $subject = Subject::parse('service:job:7');
+
+        $this->assertSame('service', $subject->type);
+        $this->assertSame('job:7', $subject->id);
+    }
+
+    public function testParseWithoutColonIsABareUserId(): void
+    {
+        $subject = Subject::parse('42');
+
+        $this->assertSame('42', $subject->id);
+        $this->assertSame('user', $subject->type);
+    }
+
+    public function testParseIsTheInverseOfToString(): void
+    {
+        $subject = Subject::from('42', 'user');
+
+        $this->assertTrue(Subject::parse($subject->toString())->equals($subject));
+    }
 }

@@ -25,10 +25,16 @@ final readonly class HashedToken implements HashedTokenInterface
     ) {
     }
 
+    /** The one hash function for tokens: SHA-256 of the plain token value. Use it for every presented token. */
+    public static function hashOf(string $plainToken): string
+    {
+        return hash('sha256', $plainToken);
+    }
+
     public static function fromToken(Token $token): self
     {
         return new self(
-            hash: hash('sha256', $token->value),
+            hash: self::hashOf($token->value),
             type: $token->type,
             subject: $token->subject,
             claims: $token->claims,
