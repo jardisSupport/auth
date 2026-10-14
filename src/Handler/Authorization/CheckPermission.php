@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace JardisSupport\Auth\Handler\Authorization;
 
 use JardisSupport\Auth\Data\Policy;
+use JardisSupport\Contract\Auth\SessionClaim;
 use JardisSupport\Contract\Auth\SessionInterface;
 
 /** Checks whether a session's role(s) are granted a given permission according to the policy. */
@@ -17,7 +18,7 @@ final class CheckPermission
 
     public function __invoke(SessionInterface $session, string $permission): bool
     {
-        $role = $session->getMetadata()['role'] ?? null;
+        $role = $session->getMetadata()[SessionClaim::ROLE] ?? null;
 
         if (is_string($role)) {
             return $this->policy->isAllowed($role, $permission);

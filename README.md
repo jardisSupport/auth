@@ -14,7 +14,7 @@
 
 ## Why This Package?
 
-- **Six classes to learn** — `SessionManager`, `PasswordHasher`, `Guard`, `PasswordAuthenticator`, `TokenAuthenticator`, `DbTokenStore`. Everything else is data
+- **Eight classes to learn** — `SessionManager`, `PasswordHasher`, `Guard`, `PasswordAuthenticator`, `TokenAuthenticator`, `DbTokenStore`, `TokenIssuer`, `TokenRedeemer`. Everything else is data
 - **Opaque tokens** — server-side state, SHA-256 hashed storage, no JWT complexity
 - **Token rotation** — automatic refresh with old-token revocation
 - **RBAC as Value Objects** — policies are immutable, defined in code, not in a database
@@ -158,6 +158,35 @@ foreach ($result->events as $event) {
 }
 ```
 
+Instead of a closure, the third argument may be a `UserLookupInterface` (`jardissupport/contracts` >= 2.10, implemented by an account store such as `jardissupport/identity`). It returns a `CredentialRecordInterface` (`getPasswordHash()`, `getSubject()` as `type:id`, `getClaims()`) or `null`; a subject without `type:` becomes `user:<value>`. The claims are copied into the session at login (`SessionClaim::TENANT`, `SessionClaim::ROLE`).
+
+```php
+$authenticator = new PasswordAuthenticator($passwordHasher, $sessionManager, $accountStore); // UserLookupInterface
+```
+
+### Issue and redeem one-time tokens
+
+Invitation, password-reset and verification links use `TokenIssuer` and `TokenRedeemer` on the same `TokenStoreInterface`. Only the hash is stored; the plain value is handed out once.
+
+```php
+use JardisSupport\Auth\TokenIssuer;
+use JardisSupport\Auth\TokenRedeemer;
+use JardisSupport\Contract\Auth\TokenType;
+
+$issuer = new TokenIssuer($tokenStore);              // 2nd argument: token length in bytes (default 32)
+$redeemer = new TokenRedeemer($tokenStore);          // 2nd argument: VerifyToken
+
+$issued = $issuer->issue(TokenType::PasswordReset, Subject::from('42'), 3600, ['note' => 'x']);
+$issued->plain;    // send this to the user, never store it
+$issued->hashed;   // HashedToken as stored
+
+$token = $redeemer->redeem($plainFromLink, TokenType::PasswordReset);  // HashedTokenInterface
+$token->getSubject();   // 'user:42'
+$token->getClaims();
+```
+
+`redeem()` revokes the token on success, so a second call throws `TokenRevokedException`. Unknown token or wrong type throws `InvalidCredentialException` (the token stays valid for its right type), an expired one `TokenExpiredException`.
+
 ### Invalidate Sessions
 
 ```php
@@ -171,6 +200,8 @@ $event = $sessionManager->invalidateAll('user:user-42');
 // of the same subject stay valid; idempotent, an unknown reference revokes nothing
 $event = $sessionManager->invalidateByReference($result->getSessionReference());
 ```
+
+**Access/refresh pair:** `create()` links both tokens through the internal claims `_refresh` (on the access token) and `_access` (on the refresh token). `invalidateByReference()` therefore revokes the access token **and** its refresh token — `refresh($oldRefreshToken)` afterwards throws `AuthenticationException`. `refresh()` rotates the pair and re-links it; the refreshed session keeps the claims of the original session. Claims with a `_` prefix are package-internal: they are never part of `Session::metadata` and never reach `TenantAuthResult`. (`invalidate($session)` and `invalidateAll()` are unchanged.)
 
 ---
 
@@ -281,22 +312,30 @@ try {
 
 ## Architecture
 
-The user sees six orchestrators. Internally, each delegates to invokable handlers:
+The user sees eight orchestrators. Internally, each delegates to invokable handlers:
 
 ```
 SessionManager (Orchestrator)
-  ├── Handler/Session/CreateSession         create session + token pair + SessionCreated event
+  ├── Handler/Session/CreateSession         create session + linked token pair + SessionCreated event
   ├── Handler/Session/RefreshSession        rotate tokens + SessionRefreshed event
   ├── Handler/Session/InvalidateSession     revoke single session + SessionInvalidated event
+  ├── Handler/Session/InvalidateSessionByReference revoke access token + paired refresh token
   └── Handler/Session/InvalidateAllSessions revoke all + AllSessionsInvalidated event
 
 PasswordAuthenticator (Orchestrator)
   ├── Handler/Authentication/LookupUser      resolve user via $userLookup closure
+  ├── Handler/Authentication/LookupCredentialRecord resolve user via UserLookupInterface
   ├── Handler/Authentication/VerifyCredential verify password against hash
   └── Handler/Authentication/BuildAuthResult  assemble AuthenticationResult + events
 
 TokenAuthenticator (Orchestrator)
   └── Handler/Authentication/AuthenticateToken  lookup → verify → subject + subject id + tenant claim + session reference → TenantAuthResult
+
+TokenIssuer (Orchestrator)
+  └── Handler/Token/IssueToken              create token, store hash → IssuedToken
+
+TokenRedeemer (Orchestrator)
+  └── Handler/Token/RedeemToken             find → verify (type, expiry, revocation) → revoke → stored token
 
 DbTokenStore (Orchestrator)
   ├── Handler/TokenStore/StoreToken · FindToken · RevokeToken · RevokeSubjectTokens · DeleteExpiredTokens
@@ -312,7 +351,7 @@ Guard (Orchestrator)
   └── Handler/Authorization/AuthorizePermission check + throw on failure
 
 Data (Value Objects, Enums, Builder, Events)
-  ├── Token, HashedToken, TokenType
+  ├── Token, HashedToken, IssuedToken, TokenType
   ├── Session, SessionResult
   ├── Subject, Credential, CredentialType, AuthResult, AuthenticationResult
   ├── Permission, Policy, PolicyBuilder
@@ -332,6 +371,8 @@ tests/Integration/
 ├── SessionManagerTest.php                 ← src/SessionManager.php
 ├── PasswordHasherTest.php                 ← src/PasswordHasher.php
 ├── PasswordAuthenticatorTest.php          ← src/PasswordAuthenticator.php
+├── TokenIssuerTest.php                    ← src/TokenIssuer.php
+├── TokenRedeemerTest.php                  ← src/TokenRedeemer.php
 ├── Data/
 │   ├── AuthResultTest.php                 ← src/Data/AuthResult.php
 │   ├── CredentialTest.php                 ← src/Data/Credential.php
@@ -350,7 +391,7 @@ tests/Integration/
 
 ## Contracts
 
-Requires `jardissupport/contracts` ^2.9 and `jardissupport/dbquery` ^1.1. Defined in `jardissupport/contracts`:
+Requires `jardissupport/contracts` ^2.10 and `jardissupport/dbquery` ^1.1. Defined in `jardissupport/contracts`:
 
 | Interface | Purpose |
 |-----------|---------|
@@ -360,6 +401,9 @@ Requires `jardissupport/contracts` ^2.9 and `jardissupport/dbquery` ^1.1. Define
 | `AuthenticatorInterface` | Authenticate credentials, return AuthResult |
 | `TenantAwareAuthResultInterface` | AuthResult plus `getTenant()` |
 | `SessionAwareAuthResultInterface` | TenantAware plus `getSubjectId()` and `getSessionReference()` (returned by `TokenAuthenticator`) |
+| `UserLookupInterface` | `lookup(string $identifier): ?CredentialRecordInterface` — login lookup port, accepted by `PasswordAuthenticator` |
+| `CredentialRecordInterface` | `getPasswordHash()`, `getSubject()` (`type:id`), `getClaims()` |
+| `SessionClaim` | Claim names `TENANT` / `ROLE` (default of `TokenAuthenticator`, key read by `Guard`) |
 | `RequestAttribute` | Request attribute names `SUBJECT` / `SUBJECT_ID` / `TENANT` / `SESSION` for the authenticated session |
 
 ---

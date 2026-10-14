@@ -13,6 +13,7 @@ use JardisSupport\Auth\Data\Subject;
 use JardisSupport\Auth\PasswordAuthenticator;
 use JardisSupport\Auth\PasswordHasher;
 use JardisSupport\Auth\SessionManager;
+use JardisSupport\Auth\Tests\Support\FakeUserLookup;
 use JardisSupport\Auth\Tests\Support\InMemoryTokenStore;
 use JardisSupport\Contract\Auth\AuthResultInterface;
 use JardisSupport\Contract\Auth\CredentialType;
@@ -239,5 +240,56 @@ final class PasswordAuthenticatorTest extends TestCase
 
         // Assert
         self::assertInstanceOf(AuthResultInterface::class, $result);
+    }
+
+    public function testLookupInterfaceHitAuthenticates(): void
+    {
+        $lookup = new FakeUserLookup('john@example.com', $this->hashedPassword, 'user:42');
+        $authenticator = new PasswordAuthenticator($this->hasher, $this->sessionManager, $lookup);
+
+        $result = $authenticator->authenticate(Credential::password('john@example.com', 'secret123'));
+
+        self::assertTrue($result->isSuccess());
+        self::assertSame('user:42', $result->getSubject());
+        self::assertNotNull($result->session);
+    }
+
+    public function testLookupInterfaceUnknownIdentifierFails(): void
+    {
+        $lookup = new FakeUserLookup('john@example.com', $this->hashedPassword, 'user:42');
+        $authenticator = new PasswordAuthenticator($this->hasher, $this->sessionManager, $lookup);
+
+        $result = $authenticator->authenticate(Credential::password('nobody@example.com', 'secret123'));
+
+        self::assertFalse($result->isSuccess());
+        self::assertSame('Invalid credentials', $result->getReason());
+    }
+
+    public function testLookupInterfaceClaimsReachSessionMetadata(): void
+    {
+        $lookup = new FakeUserLookup(
+            'john@example.com',
+            $this->hashedPassword,
+            'user:42',
+            ['tenant' => 'acme', 'role' => 'admin'],
+        );
+        $authenticator = new PasswordAuthenticator($this->hasher, $this->sessionManager, $lookup);
+
+        $result = $authenticator->authenticate(Credential::password('john@example.com', 'secret123'));
+
+        self::assertNotNull($result->session);
+        self::assertSame('acme', $result->session->metadata['tenant']);
+        self::assertSame('admin', $result->session->metadata['role']);
+    }
+
+    public function testLookupInterfaceSubjectWithoutTypeFallsBackToUser(): void
+    {
+        $lookup = new FakeUserLookup('john@example.com', $this->hashedPassword, '42');
+        $authenticator = new PasswordAuthenticator($this->hasher, $this->sessionManager, $lookup);
+
+        $result = $authenticator->authenticate(Credential::password('john@example.com', 'secret123'));
+
+        self::assertTrue($result->isSuccess());
+        self::assertSame('user:42', $result->getSubject());
     }
 }

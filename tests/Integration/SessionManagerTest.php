@@ -239,4 +239,43 @@ final class SessionManagerTest extends TestCase
         self::assertNotNull($tokenB);
         self::assertFalse($tokenB->revoked);
     }
+
+    public function testInvalidateByReferenceAlsoRevokesThePairedRefreshToken(): void
+    {
+        // Arrange
+        $created = $this->sessionManager->create(Subject::from('42', 'user'));
+
+        // Act
+        $this->sessionManager->invalidateByReference($created->session->tokenHash);
+
+        // Assert
+        $this->expectException(AuthenticationException::class);
+        $this->sessionManager->refresh($created->refreshToken);
+    }
+
+    public function testMetadataCarriesNoInternalClaims(): void
+    {
+        // Arrange / Act
+        $created = $this->sessionManager->create(Subject::from('42', 'user'), ['tenant' => 'acme', '_foreign' => 'x']);
+        $refreshed = $this->sessionManager->refresh($created->refreshToken);
+
+        // Assert
+        self::assertSame(['tenant' => 'acme'], $created->session->metadata);
+        foreach (array_keys($refreshed->session->metadata) as $key) {
+            self::assertStringStartsNotWith('_', (string) $key);
+        }
+    }
+
+    public function testRefreshedSessionKeepsTheClaimsOfTheOriginalSession(): void
+    {
+        // Arrange
+        $claims = ['tenant' => 'acme', 'role' => 'admin'];
+        $created = $this->sessionManager->create(Subject::from('42', 'user'), $claims);
+
+        // Act
+        $refreshed = $this->sessionManager->refresh($created->refreshToken);
+
+        // Assert
+        self::assertSame($claims, $refreshed->session->metadata);
+    }
 }
