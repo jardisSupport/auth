@@ -14,11 +14,18 @@ use JardisSupport\Auth\Handler\Session\InvalidateAllSessions;
 use JardisSupport\Auth\Handler\Session\InvalidateSession;
 use JardisSupport\Auth\Handler\Session\InvalidateSessionByReference;
 use JardisSupport\Auth\Handler\Session\RefreshSession;
+use JardisSupport\Auth\Handler\Token\SignAccessToken;
 use JardisSupport\Auth\Handler\Token\VerifyToken;
 use JardisSupport\Contract\Auth\SessionInterface;
 use JardisSupport\Contract\Auth\TokenStoreInterface;
 
-/** Orchestrates session lifecycle: creation, token refresh, and invalidation with event emission. */
+/**
+ * Orchestrates session lifecycle: creation, token refresh, and invalidation with event emission.
+ *
+ * Access tokens are signed (verified without a store, see `SignedTokenAuthenticator`); refresh tokens are
+ * opaque and live in the `TokenStoreInterface`. Revocation takes effect at the next refresh — an issued
+ * access token stays valid until its expiry.
+ */
 final class SessionManager
 {
     private readonly Closure $createSession;
@@ -28,19 +35,23 @@ final class SessionManager
     private readonly Closure $invalidateAllSessions;
 
     /**
+     * @param string $accessTokenKey raw 32-byte signing key (e.g. base64-decoded `AUTH_TOKEN_KEY`);
+     *                               rotating it invalidates every issued access token
      * @param positive-int $accessTokenTtl
      * @param positive-int $refreshTokenTtl
      * @param positive-int $tokenLength
      */
     public function __construct(
         TokenStoreInterface $tokenStore,
+        #[\SensitiveParameter] string $accessTokenKey,
         VerifyToken $verifyToken = new VerifyToken(),
-        int $accessTokenTtl = 3600,
+        int $accessTokenTtl = 900,
         int $refreshTokenTtl = 604800,
         int $tokenLength = 32,
     ) {
         $this->createSession = (new CreateSession(
             $tokenStore,
+            (new SignAccessToken($accessTokenKey))->__invoke(...),
             $accessTokenTtl,
             $refreshTokenTtl,
             $tokenLength,

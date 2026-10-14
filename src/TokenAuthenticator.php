@@ -15,8 +15,12 @@ use JardisSupport\Contract\Auth\TokenStoreInterface;
 use JardisSupport\Contract\Auth\TokenType;
 
 /**
- * Orchestrates token authentication: a valid, non-revoked, non-expired access token resolves to a
- * successful result with subject and tenant; every other token yields a failure with a reason.
+ * Orchestrates store-based token authentication: a valid, non-revoked, non-expired stored token resolves to
+ * a successful result with subject and tenant; every other token yields a failure with a reason.
+ *
+ * Meant for stored tokens (`ApiKey`, `Verification`, `PasswordReset`, ...). Since v1.5 the session access
+ * tokens issued by `SessionManager` are signed and no longer live in the store — authenticate them with
+ * `SignedTokenAuthenticator`.
  *
  * The tenant is read from the token claim named by `$tenantClaim` (set when the session is created).
  */

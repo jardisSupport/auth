@@ -26,6 +26,7 @@ final class SessionManagerTest extends TestCase
         $this->tokenStore = new InMemoryTokenStore();
         $this->sessionManager = new SessionManager(
             tokenStore: $this->tokenStore,
+            accessTokenKey: str_repeat('k', 32),
             accessTokenTtl: 3600,
             refreshTokenTtl: 604800,
         );
@@ -46,7 +47,7 @@ final class SessionManagerTest extends TestCase
         self::assertNotEmpty($result->refreshToken);
     }
 
-    public function testCreateStoresBothTokensInStore(): void
+    public function testCreateStoresOnlyTheRefreshTokenInStore(): void
     {
         // Arrange
         $subject = Subject::from('42', 'user');
@@ -55,11 +56,11 @@ final class SessionManagerTest extends TestCase
         $result = $this->sessionManager->create($subject);
 
         // Assert
-        $accessHash = hash('sha256', $result->accessToken);
         $refreshHash = hash('sha256', $result->refreshToken);
 
-        self::assertNotNull($this->tokenStore->find($accessHash));
+        self::assertNull($this->tokenStore->find(hash('sha256', $result->accessToken)));
         self::assertNotNull($this->tokenStore->find($refreshHash));
+        self::assertSame($refreshHash, $result->session->tokenHash);
     }
 
     public function testCreateWithClaimsSetsMetadataOnSession(): void
@@ -194,29 +195,15 @@ final class SessionManagerTest extends TestCase
         $resultA = $this->sessionManager->create($subject);
         $resultB = $this->sessionManager->create($subject);
 
-        $accessHashA = $resultA->session->tokenHash;
-        $accessHashB = $resultB->session->tokenHash;
-        $refreshHashA = hash('sha256', $resultA->refreshToken);
-        $refreshHashB = hash('sha256', $resultB->refreshToken);
+        $refreshHashA = $resultA->session->tokenHash;
+        $refreshHashB = $resultB->session->tokenHash;
 
         // Act
         $event = $this->sessionManager->invalidateAll('user:42');
 
         // Assert
-        $tokenAA = $this->tokenStore->find($accessHashA);
-        $tokenAB = $this->tokenStore->find($accessHashB);
-        $tokenRA = $this->tokenStore->find($refreshHashA);
-        $tokenRB = $this->tokenStore->find($refreshHashB);
-
-        self::assertNotNull($tokenAA);
-        self::assertNotNull($tokenAB);
-        self::assertNotNull($tokenRA);
-        self::assertNotNull($tokenRB);
-
-        self::assertTrue($tokenAA->revoked);
-        self::assertTrue($tokenAB->revoked);
-        self::assertTrue($tokenRA->revoked);
-        self::assertTrue($tokenRB->revoked);
+        self::assertTrue($this->tokenStore->find($refreshHashA)?->revoked);
+        self::assertTrue($this->tokenStore->find($refreshHashB)?->revoked);
 
         self::assertInstanceOf(AllSessionsInvalidated::class, $event);
         self::assertSame('user:42', $event->subject);
@@ -240,7 +227,7 @@ final class SessionManagerTest extends TestCase
         self::assertFalse($tokenB->revoked);
     }
 
-    public function testInvalidateByReferenceAlsoRevokesThePairedRefreshToken(): void
+    public function testInvalidateByReferenceRevokesTheRefreshToken(): void
     {
         // Arrange
         $created = $this->sessionManager->create(Subject::from('42', 'user'));

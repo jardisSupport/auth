@@ -8,13 +8,13 @@
 
 > Part of **[Jardis](https://jardis.io)** — the Domain-Driven Design platform for PHP. You model your domain; Jardis generates the production-ready hexagonal code (DTOs, Command/Query handlers, repositories, persistence). This package is part of the open-source foundation that generated code runs on.
 
-**Authentication and authorization without framework coupling.** A focused RBAC for PHP covering opaque tokens, session management, password hashing, and role-based access control — designed for DDD applications. No HTTP layer, no JWT, no third-party runtime dependencies beyond PHP built-ins and the Jardis packages `contracts` and `dbquery`. Pure support package.
+**Authentication and authorization without framework coupling.** A focused RBAC for PHP covering signed access tokens, opaque refresh tokens, session management, password hashing, and role-based access control — designed for DDD applications. No HTTP layer, no JWT, no third-party runtime dependencies beyond PHP built-ins and the Jardis packages `contracts` and `dbquery`. Pure support package.
 
 ---
 
 ## Why This Package?
 
-- **Eight classes to learn** — `SessionManager`, `PasswordHasher`, `Guard`, `PasswordAuthenticator`, `TokenAuthenticator`, `DbTokenStore`, `TokenIssuer`, `TokenRedeemer`. Everything else is data
+- **Nine classes to learn** — `SessionManager`, `PasswordHasher`, `Guard`, `PasswordAuthenticator`, `SignedTokenAuthenticator`, `TokenAuthenticator`, `DbTokenStore`, `TokenIssuer`, `TokenRedeemer`. Everything else is data
 - **Opaque tokens** — server-side state, SHA-256 hashed storage, no JWT complexity
 - **Token rotation** — automatic refresh with old-token revocation
 - **RBAC as Value Objects** — policies are immutable, defined in code, not in a database
@@ -38,7 +38,7 @@ composer require jardissupport/auth
 use JardisSupport\Auth\SessionManager;
 use JardisSupport\Auth\Data\Subject;
 
-$sessionManager = new SessionManager($tokenStore);
+$sessionManager = new SessionManager($tokenStore, $accessTokenKey); // 32-byte signing key, see "Session tokens"
 $subject = Subject::from('user-42', 'user');
 
 $result = $sessionManager->create($subject, ['role' => 'editor']);
@@ -56,15 +56,11 @@ foreach ($result->events as $event) {
 ### Verify & Refresh Tokens
 
 ```php
-use JardisSupport\Auth\Handler\Token\VerifyToken;
-use JardisSupport\Auth\Data\TokenType;
+use JardisSupport\Auth\Data\Credential;
+use JardisSupport\Auth\SignedTokenAuthenticator;
 
-// Verify an access token
-$verifier = new VerifyToken();
-$hash = hash('sha256', $accessToken);
-$stored = $tokenStore->find($hash);
-$verifier($accessToken, $stored, TokenType::Access);
-// throws TokenExpiredException or TokenRevokedException
+// Verify an access token — signature + expiry, no store, no database
+$result = (new SignedTokenAuthenticator($accessTokenKey))->authenticate(Credential::token($accessToken));
 
 // Refresh — rotates tokens, revokes the old refresh token
 $newResult = $sessionManager->refresh($refreshToken);
@@ -201,7 +197,24 @@ $event = $sessionManager->invalidateAll('user:user-42');
 $event = $sessionManager->invalidateByReference($result->getSessionReference());
 ```
 
-**Access/refresh pair:** `create()` links both tokens through the internal claims `_refresh` (on the access token) and `_access` (on the refresh token). `invalidateByReference()` therefore revokes the access token **and** its refresh token — `refresh($oldRefreshToken)` afterwards throws `AuthenticationException`. `refresh()` rotates the pair and re-links it; the refreshed session keeps the claims of the original session. Claims with a `_` prefix are package-internal: they are never part of `Session::metadata` and never reach `TenantAuthResult`. (`invalidate($session)` and `invalidateAll()` are unchanged.)
+**Revocation acts on the refresh token.** `invalidate()`, `invalidateByReference()` and `invalidateAll()` revoke refresh tokens in the store — `refresh($oldRefreshToken)` afterwards throws `AuthenticationException`. An already issued access token stays valid until its `exp` (default 15 minutes), see "Session tokens". `refresh()` rotates the refresh token and issues a new access token with a new session reference; the refreshed session keeps the claims of the original session. Claims with a `_` prefix are package-internal: they are never part of `Session::metadata` and never reach `TenantAuthResult`.
+
+---
+
+## Session tokens
+
+> **Breaking since v1.5.0:** `SessionManager` takes the signing key as required second constructor argument (`new SessionManager($store, $accessTokenKey)`), and session access tokens are no longer stored. Authenticate them with `SignedTokenAuthenticator`, not `TokenAuthenticator`. Default access TTL is now 900 s (was 3600 s).
+
+| Token | Form | Storage | Checked by |
+|-------|------|---------|------------|
+| Access | signed: `base64url(payload) . '.' . base64url(mac)` | none | `SignedTokenAuthenticator` — signature and `exp`, **no database access per request** |
+| Refresh | opaque random value | SHA-256 hash in `TokenStoreInterface` | `SessionManager::refresh()` |
+
+- **Signature:** `sodium_crypto_auth` (HMAC-SHA512-256) over the encoded payload; no header, no `alg` field, no JWT library. Payload: `{typ:"access", sub, sid, iat, exp, claims:{…}}`.
+- **`sid`** (the session reference, `getSessionReference()`) is the hash of the session's refresh token: `invalidateByReference($sid)` revokes exactly that session's refresh.
+- **Revocation happens at refresh:** an issued access token remains valid until `exp` (TTL default 900 s, refresh TTL 604800 s). Keep the access TTL short.
+- **Key:** an own secret of exactly **32 bytes** — in `.env` as `AUTH_TOKEN_KEY` (base64), handed to the package as raw bytes: `base64_decode($_ENV['AUTH_TOKEN_KEY'], true)`. A key of another length throws `InvalidArgumentException`. Do not reuse `APP_SECRET_KEY`.
+- **Rotation:** replacing the key invalidates **all** issued access tokens at once (clients refresh and get new ones signed with the new key); refresh tokens are unaffected.
 
 ---
 
@@ -215,8 +228,10 @@ use JardisSupport\Auth\DbTokenStore;
 $store = new DbTokenStore($connection);                 // table: auth_tokens
 $store = new DbTokenStore($connection, 'my_tokens');    // custom table name (plain identifier)
 
-$sessionManager = new SessionManager($store);
+$sessionManager = new SessionManager($store, $accessTokenKey);
 ```
+
+The store holds refresh tokens and one-time tokens (API keys, verification, password reset); session access tokens are signed and never stored.
 
 **Table DDL** ships with the package (one file per dialect, `auth_tokens`, timestamps in UTC):
 
@@ -234,14 +249,16 @@ Prefer your own store (Redis, ...)? Implement `TokenStoreInterface` yourself; an
 
 ## Authenticate a Token (request → subject + tenant)
 
-`TokenAuthenticator` resolves an access token to a verified session: a valid, non-revoked, non-expired token yields a successful `SessionAwareAuthResultInterface` with qualified subject, bare subject id, tenant **and** a session reference; any other token yields a failure with a reason.
+**Session access tokens** (issued by `SessionManager`) are authenticated by `SignedTokenAuthenticator($accessTokenKey, $tenantClaim = SessionClaim::TENANT)`: same result type, same reasons (`Invalid token`, `Token expired`, `Unsupported credential type`; never `Token revoked` — revocation acts at refresh), no store. `getSessionReference()` is the token's `sid`.
+
+`TokenAuthenticator` resolves a **stored** token (API key, verification, password reset, or any `TokenIssuer`-issued token; `$expectedType` selects the type): a valid, non-revoked, non-expired token yields a successful `SessionAwareAuthResultInterface` with qualified subject, bare subject id, tenant **and** a session reference; any other token yields a failure with a reason.
 
 ```php
 use JardisSupport\Auth\Data\Credential;
 use JardisSupport\Auth\TokenAuthenticator;
 use JardisSupport\Contract\Auth\RequestAttribute;
 
-// The tenant is a claim of the access token, set when the session is created:
+// The tenant is a claim of the token, set when the session / token is created:
 $session = $sessionManager->create(Subject::from('42'), ['tenant' => 'acme']);
 
 $authenticator = new TokenAuthenticator($store);               // tenant claim: 'tenant'
@@ -262,7 +279,7 @@ if ($result->isSuccess()) {
 
 Only `TokenType::Access` tokens are accepted by default (4th constructor argument changes that). The attribute names `RequestAttribute::SUBJECT` (`jardisSubject`) and `RequestAttribute::TENANT` (`jardisTenant`) live in `jardissupport/contracts` (>= 2.8.0); `SUBJECT_ID`, `SESSION` and `SessionAwareAuthResultInterface` since 2.9.0.
 
-The **session reference** is the SHA-256 hash of the presented access token (`getSessionReference()`); `SessionManager::invalidateByReference()` revokes exactly that session. Any other place that needs the hash of a plain token uses the one function `HashedToken::hashOf(string $plainToken): string` — never `hash('sha256', …)` in the consumer. `Subject::parse('user:42')` is the inverse of `Subject::toString()`.
+The **session reference** of a stored-token result is the SHA-256 hash of the presented token; for a signed access token it is the `sid` (hash of the refresh token); `SessionManager::invalidateByReference()` revokes exactly that session's refresh token. Any other place that needs the hash of a plain token uses the one function `HashedToken::hashOf(string $plainToken): string` — never `hash('sha256', …)` in the consumer. `Subject::parse('user:42')` is the inverse of `Subject::toString()`.
 
 ---
 
@@ -312,14 +329,16 @@ try {
 
 ## Architecture
 
-The user sees eight orchestrators. Internally, each delegates to invokable handlers:
+The user sees nine orchestrators. Internally, each delegates to invokable handlers:
 
 ```
 SessionManager (Orchestrator)
-  ├── Handler/Session/CreateSession         create session + linked token pair + SessionCreated event
+  ├── Handler/Session/CreateSession         store refresh token, sign access token (sid = refresh hash) + SessionCreated event
   ├── Handler/Session/RefreshSession        rotate tokens + SessionRefreshed event
   ├── Handler/Session/InvalidateSession     revoke single session + SessionInvalidated event
-  ├── Handler/Session/InvalidateSessionByReference revoke access token + paired refresh token
+  ├── Handler/Session/InvalidateSessionByReference revoke the session's refresh token (sid)
+  ├── Handler/Token/SignAccessToken         payload → signed access token
+  ├── Handler/Token/VerifyAccessToken       signed access token → payload (MAC, typ, exp) or null
   └── Handler/Session/InvalidateAllSessions revoke all + AllSessionsInvalidated event
 
 PasswordAuthenticator (Orchestrator)
@@ -327,6 +346,9 @@ PasswordAuthenticator (Orchestrator)
   ├── Handler/Authentication/LookupCredentialRecord resolve user via UserLookupInterface
   ├── Handler/Authentication/VerifyCredential verify password against hash
   └── Handler/Authentication/BuildAuthResult  assemble AuthenticationResult + events
+
+SignedTokenAuthenticator (Orchestrator)
+  └── Handler/Authentication/AuthenticateSignedToken  verify signature + exp → subject + tenant claim + sid → TenantAuthResult
 
 TokenAuthenticator (Orchestrator)
   └── Handler/Authentication/AuthenticateToken  lookup → verify → subject + subject id + tenant claim + session reference → TenantAuthResult
@@ -400,7 +422,7 @@ Requires `jardissupport/contracts` ^2.10 and `jardissupport/dbquery` ^1.1. Defin
 | `GuardInterface` | Permission check + authorize |
 | `AuthenticatorInterface` | Authenticate credentials, return AuthResult |
 | `TenantAwareAuthResultInterface` | AuthResult plus `getTenant()` |
-| `SessionAwareAuthResultInterface` | TenantAware plus `getSubjectId()` and `getSessionReference()` (returned by `TokenAuthenticator`) |
+| `SessionAwareAuthResultInterface` | TenantAware plus `getSubjectId()` and `getSessionReference()` (returned by `SignedTokenAuthenticator` and `TokenAuthenticator`) |
 | `UserLookupInterface` | `lookup(string $identifier): ?CredentialRecordInterface` — login lookup port, accepted by `PasswordAuthenticator` |
 | `CredentialRecordInterface` | `getPasswordHash()`, `getSubject()` (`type:id`), `getClaims()` |
 | `SessionClaim` | Claim names `TENANT` / `ROLE` (default of `TokenAuthenticator`, key read by `Guard`) |
@@ -431,7 +453,9 @@ AUTH_HASH_THREADS=1
 
 # Token Defaults
 AUTH_TOKEN_LENGTH=32
-AUTH_ACCESS_TOKEN_TTL=3600
+AUTH_ACCESS_TOKEN_TTL=900
+# 32 bytes, base64 (e.g. `openssl rand -base64 32`); decode before handing to SessionManager
+AUTH_TOKEN_KEY=
 AUTH_REFRESH_TOKEN_TTL=604800
 ```
 

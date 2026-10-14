@@ -1,7 +1,7 @@
 {
     "name": "jardissupport/auth",
     "homepage": "https://jardis.io",
-    "description": "Opaque token management with SQL token store and token authentication (subject + tenant), session handling, password hashing, and role-based access control for PHP DDD applications — framework-free, no JWT, no third-party runtime dependencies beyond PHP built-ins and the Jardis contracts and dbquery packages",
+    "description": "Signed access tokens and opaque refresh tokens with SQL token store and token authentication (subject + tenant), session handling, password hashing, and role-based access control for PHP DDD applications — framework-free, no JWT, no third-party runtime dependencies beyond PHP built-ins and the Jardis contracts and dbquery packages",
     "type": "library",
     "license": "MIT",
     "minimum-stability": "stable",

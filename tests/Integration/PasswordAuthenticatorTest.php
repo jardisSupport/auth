@@ -33,6 +33,7 @@ final class PasswordAuthenticatorTest extends TestCase
         $tokenStore = new InMemoryTokenStore();
         $this->sessionManager = new SessionManager(
             tokenStore: $tokenStore,
+            accessTokenKey: str_repeat('k', 32),
             accessTokenTtl: 3600,
             refreshTokenTtl: 604800,
         );
