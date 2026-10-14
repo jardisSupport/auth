@@ -4,33 +4,33 @@ declare(strict_types=1);
 
 namespace JardisSupport\Auth\Handler\Session;
 
+use Closure;
+use DateTimeImmutable;
 use JardisSupport\Auth\Data\Event\SessionCreated;
 use JardisSupport\Auth\Data\Subject;
 use JardisSupport\Auth\Data\Session;
-use JardisSupport\Auth\Data\HashedToken;
 use JardisSupport\Auth\Data\Token;
 use JardisSupport\Contract\Auth\TokenType;
 use JardisSupport\Contract\Auth\TokenStoreInterface;
 
-/** Creates a new session by generating and storing hashed access and refresh tokens for a subject. */
+/**
+ * Creates a new session: an opaque refresh token (hashed in the store) and a signed access token that
+ * carries the refresh token's hash as `sid`. The access token itself is never stored.
+ */
 final class CreateSession
 {
-    /** Internal claim on the access token: hash of the paired refresh token. */
-    public const REFRESH_CLAIM = '_refresh';
-
-    /** Internal claim on the refresh token: hash of the paired access token. */
-    public const ACCESS_CLAIM = '_access';
-
     /** Prefix of package-internal claims; they never reach `Session::metadata`. */
     public const INTERNAL_PREFIX = '_';
 
     /**
+     * @param Closure(array<string, mixed>): string $signAccessToken
      * @param positive-int $accessTokenTtl
      * @param positive-int $refreshTokenTtl
      * @param positive-int $tokenLength
      */
     public function __construct(
         private readonly TokenStoreInterface $tokenStore,
+        private readonly Closure $signAccessToken,
         private readonly int $accessTokenTtl,
         private readonly int $refreshTokenTtl,
         private readonly int $tokenLength,
@@ -45,45 +45,43 @@ final class CreateSession
     {
         $claims = self::withoutInternal($claims);
 
-        $accessToken = Token::create(TokenType::Access, $this->tokenLength);
-        $refreshToken = Token::create(TokenType::Refresh, $this->tokenLength);
-
-        // The pair link: each token carries the hash of its partner, so one can revoke the other.
-        $accessToken = $accessToken
-            ->forSubject($subject->toString())
-            ->expiresIn($this->accessTokenTtl)
-            ->withClaims($claims)
-            ->withClaims([self::REFRESH_CLAIM => HashedToken::hashOf($refreshToken->value)]);
-
-        $refreshToken = $refreshToken
+        $refreshToken = Token::create(TokenType::Refresh, $this->tokenLength)
             ->forSubject($subject->toString())
             ->expiresIn($this->refreshTokenTtl)
-            ->withClaims($claims)
-            ->withClaims([self::ACCESS_CLAIM => HashedToken::hashOf($accessToken->value)]);
+            ->withClaims($claims);
 
-        $hashedAccess = $accessToken->hash();
         $hashedRefresh = $refreshToken->hash();
-
-        $this->tokenStore->store($hashedAccess);
         $this->tokenStore->store($hashedRefresh);
+
+        $issuedAt = $refreshToken->createdAt->getTimestamp();
+        $expiresAt = $issuedAt + $this->accessTokenTtl;
+
+        $accessToken = ($this->signAccessToken)([
+            'typ' => 'access',
+            'sub' => $subject->toString(),
+            'sid' => $hashedRefresh->hash,
+            'iat' => $issuedAt,
+            'exp' => $expiresAt,
+            'claims' => $claims,
+        ]);
 
         $session = new Session(
             subject: $subject->toString(),
-            tokenHash: $hashedAccess->hash,
-            createdAt: $accessToken->createdAt,
-            expiresAt: $accessToken->expiresAt,
+            tokenHash: $hashedRefresh->hash,
+            createdAt: $refreshToken->createdAt,
+            expiresAt: (new DateTimeImmutable())->setTimestamp($expiresAt),
             metadata: $claims,
         );
 
         $event = new SessionCreated(
             subject: $subject->toString(),
-            tokenHash: $hashedAccess->hash,
-            timestamp: $accessToken->createdAt,
+            tokenHash: $hashedRefresh->hash,
+            timestamp: $refreshToken->createdAt,
         );
 
         return [
             'session' => $session,
-            'accessToken' => $accessToken->value,
+            'accessToken' => $accessToken,
             'refreshToken' => $refreshToken->value,
             'events' => [$event],
         ];
