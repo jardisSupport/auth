@@ -54,7 +54,7 @@ final class RefreshSession
 
         $subject = Subject::parse($storedToken->getSubject() ?? '');
 
-        $createResult = ($this->createSession)($subject, $storedToken->getClaims());
+        $createResult = ($this->createSession)($subject, CreateSession::withoutInternal($storedToken->getClaims()));
 
         $refreshedEvent = new SessionRefreshed(
             subject: $subject->toString(),

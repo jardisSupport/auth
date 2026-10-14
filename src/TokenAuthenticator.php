@@ -10,6 +10,7 @@ use JardisSupport\Auth\Handler\Authentication\AuthenticateToken;
 use JardisSupport\Auth\Handler\Token\VerifyToken;
 use JardisSupport\Contract\Auth\AuthenticatorInterface;
 use JardisSupport\Contract\Auth\CredentialInterface;
+use JardisSupport\Contract\Auth\SessionClaim;
 use JardisSupport\Contract\Auth\TokenStoreInterface;
 use JardisSupport\Contract\Auth\TokenType;
 
@@ -26,7 +27,7 @@ final class TokenAuthenticator implements AuthenticatorInterface
     public function __construct(
         TokenStoreInterface $tokenStore,
         VerifyToken $verifyToken = new VerifyToken(),
-        string $tenantClaim = 'tenant',
+        string $tenantClaim = SessionClaim::TENANT,
         TokenType $expectedType = TokenType::Access,
     ) {
         $this->authenticateToken = (new AuthenticateToken(
