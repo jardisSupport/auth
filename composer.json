@@ -15,7 +15,7 @@
     "require": {
         "php": ">=8.3",
         "ext-sodium": "*",
-        "jardissupport/contracts": "^2.8",
+        "jardissupport/contracts": "^2.9",
         "jardissupport/dbquery": "^1.1"
     },
     "require-dev": {

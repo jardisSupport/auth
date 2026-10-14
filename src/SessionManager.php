@@ -12,6 +12,7 @@ use JardisSupport\Auth\Data\Subject;
 use JardisSupport\Auth\Handler\Session\CreateSession;
 use JardisSupport\Auth\Handler\Session\InvalidateAllSessions;
 use JardisSupport\Auth\Handler\Session\InvalidateSession;
+use JardisSupport\Auth\Handler\Session\InvalidateSessionByReference;
 use JardisSupport\Auth\Handler\Session\RefreshSession;
 use JardisSupport\Auth\Handler\Token\VerifyToken;
 use JardisSupport\Contract\Auth\SessionInterface;
@@ -23,6 +24,7 @@ final class SessionManager
     private readonly Closure $createSession;
     private readonly Closure $refreshSession;
     private readonly Closure $invalidateSession;
+    private readonly Closure $invalidateSessionByReference;
     private readonly Closure $invalidateAllSessions;
 
     /**
@@ -51,6 +53,7 @@ final class SessionManager
         ))->__invoke(...);
 
         $this->invalidateSession = (new InvalidateSession($tokenStore))->__invoke(...);
+        $this->invalidateSessionByReference = (new InvalidateSessionByReference($tokenStore))->__invoke(...);
         $this->invalidateAllSessions = (new InvalidateAllSessions($tokenStore))->__invoke(...);
     }
 
@@ -84,6 +87,15 @@ final class SessionManager
     public function invalidate(SessionInterface $session): SessionInvalidated
     {
         return ($this->invalidateSession)($session);
+    }
+
+    /**
+     * Revokes exactly the session behind a session reference, e.g. `getSessionReference()` of the
+     * authentication result. Other sessions of the same subject stay valid.
+     */
+    public function invalidateByReference(string $sessionReference): SessionInvalidated
+    {
+        return ($this->invalidateSessionByReference)($sessionReference);
     }
 
     public function invalidateAll(string $subject): AllSessionsInvalidated

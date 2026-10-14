@@ -12,6 +12,16 @@ use PHPUnit\Framework\TestCase;
 
 final class HashedTokenTest extends TestCase
 {
+    // --- HashedToken::hashOf() ---
+
+    public function testHashOfIsTheHashFromTokenStores(): void
+    {
+        $token = Token::create(TokenType::Access);
+
+        $this->assertSame(HashedToken::fromToken($token)->hash, HashedToken::hashOf($token->value));
+        $this->assertSame(hash('sha256', 'plain'), HashedToken::hashOf('plain'));
+    }
+
     // --- HashedToken::fromToken() ---
 
     public function testFromTokenProducesSha256HashOfTokenValue(): void
