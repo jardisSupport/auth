@@ -12,11 +12,14 @@ use JardisSupport\Auth\Data\Event\AuthenticationFailed;
 use JardisSupport\Auth\Data\Event\AuthenticationSucceeded;
 use JardisSupport\Auth\Data\Subject;
 use JardisSupport\Auth\Handler\Authentication\BuildAuthResult;
+use JardisSupport\Auth\Handler\Authentication\LookupCredentialRecord;
 use JardisSupport\Auth\Handler\Authentication\LookupUser;
 use JardisSupport\Auth\Handler\Authentication\VerifyCredential;
 use JardisSupport\Contract\Auth\AuthenticatorInterface;
 use JardisSupport\Contract\Auth\CredentialInterface;
 use JardisSupport\Contract\Auth\CredentialType;
+use JardisSupport\Contract\Auth\PasswordHasherInterface;
+use JardisSupport\Contract\Auth\UserLookupInterface;
 
 /** Orchestrates password-based authentication: user lookup, credential verification, and session creation. */
 final class PasswordAuthenticator implements AuthenticatorInterface
@@ -26,14 +29,18 @@ final class PasswordAuthenticator implements AuthenticatorInterface
     private readonly Closure $buildAuthResult;
 
     /**
-     * @param Closure(string): ?array{hash: string, subject: Subject, claims?: array<string, mixed>} $userLookup
+     * @param Closure(string): ?array{hash: string, subject: Subject, claims?: array<string, mixed>}
+     *        |UserLookupInterface $userLookup closure returning the credential data array,
+     *        or a `UserLookupInterface` returning a `CredentialRecordInterface`
      */
     public function __construct(
-        PasswordHasher $passwordHasher,
+        PasswordHasherInterface $passwordHasher,
         private readonly SessionManager $sessionManager,
-        Closure $userLookup,
+        Closure|UserLookupInterface $userLookup,
     ) {
-        $this->lookupUser = (new LookupUser($userLookup))->__invoke(...);
+        $this->lookupUser = $userLookup instanceof UserLookupInterface
+            ? (new LookupCredentialRecord($userLookup))->__invoke(...)
+            : (new LookupUser($userLookup))->__invoke(...);
         $this->verifyCredential = (new VerifyCredential($passwordHasher->verify(...)))->__invoke(...);
         $this->buildAuthResult = (new BuildAuthResult())->__invoke(...);
     }
