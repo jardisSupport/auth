@@ -7,10 +7,11 @@ namespace JardisSupport\Auth\Tests\Support;
 use JardisSupport\Contract\Auth\HashedTokenInterface;
 use JardisSupport\Contract\Auth\TokenStoreInterface;
 
-/** InMemoryTokenStore that counts `find()` calls. */
+/** InMemoryTokenStore that counts `find()` and `revoke()` calls. */
 final class CountingTokenStore implements TokenStoreInterface
 {
     public int $finds = 0;
+    public int $revokes = 0;
     private InMemoryTokenStore $inner;
 
     public function __construct()
@@ -32,6 +33,7 @@ final class CountingTokenStore implements TokenStoreInterface
 
     public function revoke(string $hash): void
     {
+        $this->revokes++;
         $this->inner->revoke($hash);
     }
 

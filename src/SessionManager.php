@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace JardisSupport\Auth;
 
 use Closure;
-use JardisSupport\Auth\Data\Event\AllSessionsInvalidated;
 use JardisSupport\Auth\Data\Event\SessionInvalidated;
 use JardisSupport\Auth\Data\SessionResult;
 use JardisSupport\Auth\Data\Subject;
@@ -17,6 +16,7 @@ use JardisSupport\Auth\Handler\Session\RefreshSession;
 use JardisSupport\Auth\Handler\Token\SignAccessToken;
 use JardisSupport\Auth\Handler\Token\VerifyToken;
 use JardisSupport\Contract\Auth\SessionInterface;
+use JardisSupport\Contract\Auth\SessionManagerInterface;
 use JardisSupport\Contract\Auth\TokenStoreInterface;
 
 /**
@@ -25,8 +25,13 @@ use JardisSupport\Contract\Auth\TokenStoreInterface;
  * Access tokens are signed (verified without a store, see `SignedTokenAuthenticator`); refresh tokens are
  * opaque and live in the `TokenStoreInterface`. Revocation takes effect at the next refresh — an issued
  * access token stays valid until its expiry.
+ *
+ * The contract methods (`create`, `refresh`, `invalidateByReference`, `invalidateAll`) follow
+ * `SessionManagerInterface`: subjects are qualified strings (`type:id`, a `Subject` is accepted too) and the
+ * `invalidate*` calls return nothing. `invalidate(SessionInterface)` is not part of the contract and still
+ * returns its event.
  */
-final class SessionManager
+final class SessionManager implements SessionManagerInterface
 {
     private readonly Closure $createSession;
     private readonly Closure $refreshSession;
@@ -69,10 +74,12 @@ final class SessionManager
     }
 
     /**
+     * @param Subject|string $subject a `Subject` or its qualified string `type:id` (`Subject::parse`)
      * @param array<string, mixed> $claims
      */
-    public function create(Subject $subject, array $claims = []): SessionResult
+    public function create(Subject|string $subject, array $claims = []): SessionResult
     {
+        $subject = is_string($subject) ? Subject::parse($subject) : $subject;
         $result = ($this->createSession)($subject, $claims);
 
         return new SessionResult(
@@ -83,9 +90,9 @@ final class SessionManager
         );
     }
 
-    public function refresh(string $refreshTokenValue): SessionResult
+    public function refresh(string $refreshToken): SessionResult
     {
-        $result = ($this->refreshSession)($refreshTokenValue);
+        $result = ($this->refreshSession)($refreshToken);
 
         return new SessionResult(
             session: $result['session'],
@@ -104,13 +111,13 @@ final class SessionManager
      * Revokes exactly the session behind a session reference, e.g. `getSessionReference()` of the
      * authentication result. Other sessions of the same subject stay valid.
      */
-    public function invalidateByReference(string $sessionReference): SessionInvalidated
+    public function invalidateByReference(string $sessionReference): void
     {
-        return ($this->invalidateSessionByReference)($sessionReference);
+        ($this->invalidateSessionByReference)($sessionReference);
     }
 
-    public function invalidateAll(string $subject): AllSessionsInvalidated
+    public function invalidateAll(string $subject): void
     {
-        return ($this->invalidateAllSessions)($subject);
+        ($this->invalidateAllSessions)($subject);
     }
 }

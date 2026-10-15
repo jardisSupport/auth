@@ -8,6 +8,7 @@ use JardisSupport\Auth\Data\Event\AllSessionsInvalidated;
 use JardisSupport\Auth\Data\Event\SessionCreated;
 use JardisSupport\Auth\Data\Event\SessionInvalidated;
 use JardisSupport\Auth\Data\Event\SessionRefreshed;
+use JardisSupport\Auth\Handler\Session\InvalidateAllSessions;
 use JardisSupport\Auth\Data\Session;
 use JardisSupport\Auth\Data\SessionResult;
 use JardisSupport\Auth\Data\Subject;
@@ -188,7 +189,7 @@ final class SessionManagerTest extends TestCase
         self::assertSame($session->tokenHash, $event->tokenHash);
     }
 
-    public function testInvalidateAllRevokesAllTokensAndReturnsEvent(): void
+    public function testInvalidateAllRevokesAllTokens(): void
     {
         // Arrange
         $subject = Subject::from('42', 'user');
@@ -199,11 +200,16 @@ final class SessionManagerTest extends TestCase
         $refreshHashB = $resultB->session->tokenHash;
 
         // Act
-        $event = $this->sessionManager->invalidateAll('user:42');
+        $this->sessionManager->invalidateAll('user:42');
 
         // Assert
         self::assertTrue($this->tokenStore->find($refreshHashA)?->revoked);
         self::assertTrue($this->tokenStore->find($refreshHashB)?->revoked);
+    }
+
+    public function testInvalidateAllHandlerReturnsTheEvent(): void
+    {
+        $event = (new InvalidateAllSessions($this->tokenStore))('user:42');
 
         self::assertInstanceOf(AllSessionsInvalidated::class, $event);
         self::assertSame('user:42', $event->subject);

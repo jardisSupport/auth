@@ -6,6 +6,7 @@ namespace JardisSupport\Auth\Tests\Integration;
 
 use JardisSupport\Auth\Data\Credential;
 use JardisSupport\Auth\Data\Event\SessionInvalidated;
+use JardisSupport\Auth\Handler\Session\InvalidateSessionByReference;
 use JardisSupport\Auth\Data\HashedToken;
 use JardisSupport\Auth\Data\Subject;
 use JardisSupport\Auth\Exception\AuthenticationException;
@@ -72,11 +73,8 @@ final class SessionReferenceTest extends TestCase
             ->authenticate(Credential::token($first->accessToken))
             ->getSessionReference();
 
-        $event = $this->sessions->invalidateByReference($reference);
+        $this->sessions->invalidateByReference($reference);
 
-        self::assertInstanceOf(SessionInvalidated::class, $event);
-        self::assertSame('user:42', $event->subject);
-        self::assertSame($reference, $event->tokenHash);
         $this->expectException(AuthenticationException::class);
         try {
             $this->sessions->refresh($first->refreshToken);
@@ -85,13 +83,24 @@ final class SessionReferenceTest extends TestCase
         }
     }
 
+    public function testInvalidateByReferenceHandlerReturnsTheEvent(): void
+    {
+        $created = $this->sessions->create(Subject::from('42'));
+        $reference = $created->session->tokenHash;
+
+        $event = (new InvalidateSessionByReference($this->store))($reference);
+
+        self::assertInstanceOf(SessionInvalidated::class, $event);
+        self::assertSame('user:42', $event->subject);
+        self::assertSame($reference, $event->tokenHash);
+    }
+
     public function testInvalidateByUnknownReferenceIsANoOp(): void
     {
         $created = $this->sessions->create(Subject::from('42'));
 
-        $event = $this->sessions->invalidateByReference(HashedToken::hashOf('never-issued'));
+        $this->sessions->invalidateByReference(HashedToken::hashOf('never-issued'));
 
-        self::assertSame('', $event->subject);
         self::assertSame('user:42', $this->sessions->refresh($created->refreshToken)->session->subject);
     }
 }

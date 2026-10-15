@@ -11,6 +11,7 @@ use JardisSupport\Auth\Exception\TokenRevokedException;
 use JardisSupport\Auth\Handler\Token\VerifyToken;
 use JardisSupport\Contract\Auth\CredentialInterface;
 use JardisSupport\Contract\Auth\CredentialType;
+use JardisSupport\Contract\Auth\SessionClaim;
 use JardisSupport\Contract\Auth\TokenStoreInterface;
 use JardisSupport\Contract\Auth\TokenType;
 
@@ -55,10 +56,13 @@ final class AuthenticateToken
 
         $tenant = $stored->getClaims()[$this->tenantClaim] ?? null;
 
+        $role = $stored->getClaims()[SessionClaim::ROLE] ?? null;
+
         return TenantAuthResult::success(
             $subject,
             is_string($tenant) && $tenant !== '' ? $tenant : null,
             $reference,
+            is_string($role) && $role !== '' ? $role : null,
         );
     }
 }
