@@ -26,8 +26,10 @@ final class IssueToken
      * @param positive-int $ttlSeconds
      * @param array<string, mixed> $claims
      */
-    public function __invoke(TokenType $type, Subject $subject, int $ttlSeconds, array $claims = []): IssuedToken
+    public function __invoke(TokenType $type, Subject|string $subject, int $ttlSeconds, array $claims = []): IssuedToken
     {
+        $subject = is_string($subject) ? Subject::parse($subject) : $subject;
+
         $token = Token::create($type, $this->tokenLength)
             ->forSubject($subject->toString())
             ->expiresIn($ttlSeconds)

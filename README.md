@@ -179,9 +179,12 @@ $issued->hashed;   // HashedToken as stored
 $token = $redeemer->redeem($plainFromLink, TokenType::PasswordReset);  // HashedTokenInterface
 $token->getSubject();   // 'user:42'
 $token->getClaims();
+
+// Look first, consume later: same checks as redeem(), but the token stays redeemable
+$token = $redeemer->peek($plainFromLink, TokenType::Invitation);
 ```
 
-`redeem()` revokes the token on success, so a second call throws `TokenRevokedException`. Unknown token or wrong type throws `InvalidCredentialException` (the token stays valid for its right type), an expired one `TokenExpiredException`.
+`redeem()` revokes the token on success, so a second call throws `TokenRevokedException`. `peek()` performs the same checks (unknown/wrong type, expiry, revocation) with the same exceptions but never revokes — use it to show an invitation or validate a reset link, and `redeem()` as the last step of the flow (`TokenType::Invitation` is a valid issued type). Unknown token or wrong type throws `InvalidCredentialException` (the token stays valid for its right type), an expired one `TokenExpiredException`.
 
 ### Invalidate Sessions
 
@@ -189,13 +192,15 @@ $token->getClaims();
 // Single session (logout) — returns SessionInvalidated event
 $event = $sessionManager->invalidate($session);
 
-// All sessions for a subject (logout everywhere) — returns AllSessionsInvalidated event
-$event = $sessionManager->invalidateAll('user:user-42');
+// All sessions for a subject (logout everywhere) — returns nothing (SessionManagerInterface)
+$sessionManager->invalidateAll('user:user-42');
 
 // Exactly the session behind a session reference (see "Authenticate a Token") — other sessions
-// of the same subject stay valid; idempotent, an unknown reference revokes nothing
-$event = $sessionManager->invalidateByReference($result->getSessionReference());
+// of the same subject stay valid; idempotent, an unknown reference revokes nothing; returns nothing
+$sessionManager->invalidateByReference($result->getSessionReference());
 ```
+
+Since v1.6 `invalidateAll()` and `invalidateByReference()` return `void` because `SessionManagerInterface` (contracts 2.11) prescribes it — before, they returned the `AllSessionsInvalidated` / `SessionInvalidated` event. No package in the fleet used those return values; `invalidate(SessionInterface)` is not part of the interface and still returns its event. The handlers `Handler/Session/InvalidateAllSessions` and `InvalidateSessionByReference` still return the events if you need them. Also for the interface, the parameters of `SessionManager::refresh()` and `TokenRedeemer::redeem()` are now named `$refreshToken` and `$plain`/`$expected` (only relevant for callers using named arguments).
 
 **Revocation acts on the refresh token.** `invalidate()`, `invalidateByReference()` and `invalidateAll()` revoke refresh tokens in the store — `refresh($oldRefreshToken)` afterwards throws `AuthenticationException`. An already issued access token stays valid until its `exp` (default 15 minutes), see "Session tokens". `refresh()` rotates the refresh token and issues a new access token with a new session reference; the refreshed session keeps the claims of the original session. Claims with a `_` prefix are package-internal: they are never part of `Session::metadata` and never reach `TenantAuthResult`.
 
@@ -357,7 +362,11 @@ TokenIssuer (Orchestrator)
   └── Handler/Token/IssueToken              create token, store hash → IssuedToken
 
 TokenRedeemer (Orchestrator)
+  ├── Handler/Token/PeekToken               find → verify (type, expiry, revocation) → stored token, no revoke
   └── Handler/Token/RedeemToken             find → verify (type, expiry, revocation) → revoke → stored token
+
+AuthServices (bundle, no logic)
+  └── sessions() · tokenIssuer() · tokenRedeemer() · hasher() — fromStore() builds the defaults
 
 DbTokenStore (Orchestrator)
   ├── Handler/TokenStore/StoreToken · FindToken · RevokeToken · RevokeSubjectTokens · DeleteExpiredTokens
@@ -395,6 +404,7 @@ tests/Integration/
 ├── PasswordAuthenticatorTest.php          ← src/PasswordAuthenticator.php
 ├── TokenIssuerTest.php                    ← src/TokenIssuer.php
 ├── TokenRedeemerTest.php                  ← src/TokenRedeemer.php
+├── AuthContractsTest.php                  ← contracts 2.11 interfaces, AuthServices, peek, role
 ├── Data/
 │   ├── AuthResultTest.php                 ← src/Data/AuthResult.php
 │   ├── CredentialTest.php                 ← src/Data/Credential.php
@@ -413,7 +423,7 @@ tests/Integration/
 
 ## Contracts
 
-Requires `jardissupport/contracts` ^2.10 and `jardissupport/dbquery` ^1.1. Defined in `jardissupport/contracts`:
+Requires `jardissupport/contracts` ^2.11 and `jardissupport/dbquery` ^1.1. Defined in `jardissupport/contracts`:
 
 | Interface | Purpose |
 |-----------|---------|
@@ -426,7 +436,36 @@ Requires `jardissupport/contracts` ^2.10 and `jardissupport/dbquery` ^1.1. Defin
 | `UserLookupInterface` | `lookup(string $identifier): ?CredentialRecordInterface` — login lookup port, accepted by `PasswordAuthenticator` |
 | `CredentialRecordInterface` | `getPasswordHash()`, `getSubject()` (`type:id`), `getClaims()` |
 | `SessionClaim` | Claim names `TENANT` / `ROLE` (default of `TokenAuthenticator`, key read by `Guard`) |
-| `RequestAttribute` | Request attribute names `SUBJECT` / `SUBJECT_ID` / `TENANT` / `SESSION` for the authenticated session |
+| `RequestAttribute` | Request attribute names `SUBJECT` / `SUBJECT_ID` / `TENANT` / `SESSION` / `ROLE` for the authenticated session |
+| `SessionManagerInterface` | `create`, `refresh`, `invalidateByReference`, `invalidateAll` — implemented by `SessionManager` |
+| `TokenIssuerInterface` / `TokenRedeemerInterface` | `issue` / `peek`, `redeem` — implemented by `TokenIssuer` / `TokenRedeemer` |
+| `SessionResultInterface` / `IssuedTokenInterface` | getters (`getAccessToken`, `getRefreshToken`, `getSession` / `getPlain`, `getHashed`) — implemented by `SessionResult` / `IssuedToken` |
+| `RoleAwareAuthResultInterface` | `getRole(): ?string` — implemented by `TenantAuthResult` |
+| `AuthServicesInterface` | `sessions()`, `tokenIssuer()`, `tokenRedeemer()`, `hasher()` — implemented by `AuthServices` |
+
+### Interfaces (contracts 2.11)
+
+The services implement the contract interfaces, so a kernel can wire and swap them without knowing the classes:
+
+- **String subjects.** `SessionManagerInterface::create()` and `TokenIssuerInterface::issue()` take the qualified subject string `type:id` (`Subject::parse`; a bare id is `user:<id>`). The classes additionally still accept a `Subject` object, so existing callers keep working.
+- **`peek()`** on the redeemer: see "Issue and redeem one-time tokens".
+- **Role.** The claim `SessionClaim::ROLE` (`role`) of a signed token or stored token surfaces as `TenantAuthResult::getRole()` (`null` when the claim is absent or not a non-empty string); `TenantAuthResult` implements `RoleAwareAuthResultInterface`.
+- **`AuthServices`** bundles the four services:
+
+```php
+use JardisSupport\Auth\AuthServices;
+
+$auth = AuthServices::fromStore($tokenStore, $accessTokenKey);   // 3rd argument: ?PasswordHasherInterface (default Argon2id)
+$auth->sessions()->create('user:42', ['tenant' => 'acme', 'role' => 'admin']);
+$auth->tokenIssuer()->issue(TokenType::Invitation, 'user:42', 3600);
+$auth->tokenRedeemer()->peek($plain, TokenType::Invitation);
+$auth->hasher()->hash($password);
+// or wire your own services: new AuthServices($sessions, $issuer, $redeemer, $hasher)
+```
+
+`fromStore()` uses the package defaults and reads no environment — key and store come from the caller. The class-level `SessionResult`/`IssuedToken` keep their public properties and add the interface getters; `PasswordAuthenticator` takes any `SessionManagerInterface`.
+
+The auth exceptions (`InvalidCredentialException`, `TokenExpiredException`, `TokenRevokedException`) are documented in contracts as prose only.
 
 ---
 

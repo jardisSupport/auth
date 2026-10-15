@@ -9,6 +9,7 @@ use JardisSupport\Auth\Exception\TokenExpiredException;
 use JardisSupport\Auth\Handler\Token\VerifyAccessToken;
 use JardisSupport\Contract\Auth\CredentialInterface;
 use JardisSupport\Contract\Auth\CredentialType;
+use JardisSupport\Contract\Auth\SessionClaim;
 
 /** Resolves a signed access token to subject, tenant and session reference (`sid`) — no store lookup. */
 final class AuthenticateSignedToken
@@ -45,6 +46,13 @@ final class AuthenticateSignedToken
 
         $tenant = $claims[$this->tenantClaim] ?? null;
 
-        return TenantAuthResult::success($subject, is_string($tenant) && $tenant !== '' ? $tenant : null, $sid);
+        $role = $claims[SessionClaim::ROLE] ?? null;
+
+        return TenantAuthResult::success(
+            $subject,
+            is_string($tenant) && $tenant !== '' ? $tenant : null,
+            $sid,
+            is_string($role) && $role !== '' ? $role : null,
+        );
     }
 }

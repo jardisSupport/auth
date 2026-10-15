@@ -8,6 +8,7 @@ use Closure;
 use JardisSupport\Auth\Data\IssuedToken;
 use JardisSupport\Auth\Data\Subject;
 use JardisSupport\Auth\Handler\Token\IssueToken;
+use JardisSupport\Contract\Auth\TokenIssuerInterface;
 use JardisSupport\Contract\Auth\TokenStoreInterface;
 use JardisSupport\Contract\Auth\TokenType;
 
@@ -15,7 +16,7 @@ use JardisSupport\Contract\Auth\TokenType;
  * Orchestrates issuing of one-time tokens (invitation, password reset, verification):
  * the plain value is returned once, only its hash is stored.
  */
-final class TokenIssuer
+final class TokenIssuer implements TokenIssuerInterface
 {
     private readonly Closure $issueToken;
 
@@ -30,10 +31,11 @@ final class TokenIssuer
     }
 
     /**
+     * @param Subject|string $subject a `Subject` or its qualified string `type:id` (`Subject::parse`)
      * @param positive-int $ttlSeconds
      * @param array<string, mixed> $claims
      */
-    public function issue(TokenType $type, Subject $subject, int $ttlSeconds, array $claims = []): IssuedToken
+    public function issue(TokenType $type, Subject|string $subject, int $ttlSeconds, array $claims = []): IssuedToken
     {
         return ($this->issueToken)($type, $subject, $ttlSeconds, $claims);
     }
