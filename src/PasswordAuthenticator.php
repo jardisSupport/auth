@@ -19,6 +19,7 @@ use JardisSupport\Contract\Auth\AuthenticatorInterface;
 use JardisSupport\Contract\Auth\CredentialInterface;
 use JardisSupport\Contract\Auth\CredentialType;
 use JardisSupport\Contract\Auth\PasswordHasherInterface;
+use JardisSupport\Contract\Auth\SessionManagerInterface;
 use JardisSupport\Contract\Auth\UserLookupInterface;
 
 /** Orchestrates password-based authentication: user lookup, credential verification, and session creation. */
@@ -35,7 +36,7 @@ final class PasswordAuthenticator implements AuthenticatorInterface
      */
     public function __construct(
         PasswordHasherInterface $passwordHasher,
-        private readonly SessionManager $sessionManager,
+        private readonly SessionManagerInterface $sessionManager,
         Closure|UserLookupInterface $userLookup,
     ) {
         $this->lookupUser = $userLookup instanceof UserLookupInterface
@@ -86,7 +87,7 @@ final class PasswordAuthenticator implements AuthenticatorInterface
         }
 
         $sessionResult = $this->sessionManager->create(
-            $userData['subject'],
+            $userData['subject']->toString(),
             $userData['claims'] ?? [],
         );
 
