@@ -405,6 +405,7 @@ tests/Integration/
 ├── TokenIssuerTest.php                    ← src/TokenIssuer.php
 ├── TokenRedeemerTest.php                  ← src/TokenRedeemer.php
 ├── AuthContractsTest.php                  ← contracts 2.11 interfaces, AuthServices, peek, role
+├── SessionExpiryContractTest.php          ← SessionInterface::getExpiresAt() (v1.7)
 ├── Data/
 │   ├── AuthResultTest.php                 ← src/Data/AuthResult.php
 │   ├── CredentialTest.php                 ← src/Data/Credential.php
@@ -423,7 +424,7 @@ tests/Integration/
 
 ## Contracts
 
-Requires `jardissupport/contracts` ^2.11 and `jardissupport/dbquery` ^1.1. Defined in `jardissupport/contracts`:
+Requires `jardissupport/contracts` ^2.12 and `jardissupport/dbquery` ^1.1. Defined in `jardissupport/contracts`:
 
 | Interface | Purpose |
 |-----------|---------|
@@ -448,6 +449,7 @@ Requires `jardissupport/contracts` ^2.11 and `jardissupport/dbquery` ^1.1. Defin
 The services implement the contract interfaces, so a kernel can wire and swap them without knowing the classes:
 
 - **String subjects.** `SessionManagerInterface::create()` and `TokenIssuerInterface::issue()` take the qualified subject string `type:id` (`Subject::parse`; a bare id is `user:<id>`). The classes additionally still accept a `Subject` object, so existing callers keep working.
+- **Session expiry (v1.7, contracts 2.12).** `SessionInterface::getExpiresAt(): ?DateTimeImmutable` (`null` = does not expire) is implemented by `Data\Session` and returns the public `expiresAt` property, which stays unchanged. A session from `SessionManager::create()`/`refresh()` carries the expiry of its signed access token (`exp`). Consumers read the expiry through the contract, never from the class.
 - **`peek()`** on the redeemer: see "Issue and redeem one-time tokens".
 - **Role.** The claim `SessionClaim::ROLE` (`role`) of a signed token or stored token surfaces as `TenantAuthResult::getRole()` (`null` when the claim is absent or not a non-empty string); `TenantAuthResult` implements `RoleAwareAuthResultInterface`.
 - **`AuthServices`** bundles the four services:

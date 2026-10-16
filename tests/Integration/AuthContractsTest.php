@@ -295,6 +295,11 @@ final class AuthContractsTest extends TestCase
                                 return 'hash';
                             }
 
+                            public function getExpiresAt(): ?\DateTimeImmutable
+                            {
+                                return null;
+                            }
+
                             public function isExpired(): bool
                             {
                                 return false;
