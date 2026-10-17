@@ -32,6 +32,11 @@ final readonly class Session implements SessionInterface
         return $this->tokenHash;
     }
 
+    public function getExpiresAt(): ?DateTimeImmutable
+    {
+        return $this->expiresAt;
+    }
+
     public function isExpired(): bool
     {
         if ($this->expiresAt === null) {
