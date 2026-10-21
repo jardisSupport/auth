@@ -17,6 +17,7 @@ final class AuthenticateSignedToken
     public function __construct(
         private readonly VerifyAccessToken $verifyAccessToken,
         private readonly string $tenantClaim,
+        private readonly ReadRightsClaim $readRightsClaim = new ReadRightsClaim(),
     ) {
     }
 
@@ -53,6 +54,7 @@ final class AuthenticateSignedToken
             is_string($tenant) && $tenant !== '' ? $tenant : null,
             $sid,
             is_string($role) && $role !== '' ? $role : null,
+            ($this->readRightsClaim)($claims),
         );
     }
 }
