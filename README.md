@@ -377,6 +377,9 @@ PasswordHasher (Orchestrator)
   ├── Handler/Password/VerifyPassword       verify via password_verify()
   └── Handler/Password/CheckRehash          check via password_needs_rehash()
 
+Rights check (closure, used without Guard)
+  └── Handler/Authorization/HasRight           right in a list of granted rights (`Permission::matches`)
+
 Guard (Orchestrator)
   ├── Handler/Authorization/CheckPermission    check role(s) against policy
   └── Handler/Authorization/AuthorizePermission check + throw on failure
@@ -414,6 +417,9 @@ tests/Integration/
 │   ├── PolicyTest.php                     ← src/Data/Policy.php
 │   ├── TokenTest.php                      ← src/Data/Token.php
 │   └── HashedTokenTest.php                ← src/Data/HashedToken.php
+├── RightsClaimTest.php                    ← claim `rights` → TenantAuthResult::getRights()
+├── Handler/Authorization/
+│   └── HasRightTest.php                   ← src/Handler/Authorization/HasRight.php
 ├── Handler/Token/
 │   └── VerifyTokenTest.php                ← src/Handler/Token/VerifyToken.php
 └── Support/
@@ -424,7 +430,7 @@ tests/Integration/
 
 ## Contracts
 
-Requires `jardissupport/contracts` ^2.12 and `jardissupport/dbquery` ^1.1. Defined in `jardissupport/contracts`:
+Requires `jardissupport/contracts` ^2.16 and `jardissupport/dbquery` ^1.1. Defined in `jardissupport/contracts`:
 
 | Interface | Purpose |
 |-----------|---------|
@@ -436,12 +442,13 @@ Requires `jardissupport/contracts` ^2.12 and `jardissupport/dbquery` ^1.1. Defin
 | `SessionAwareAuthResultInterface` | TenantAware plus `getSubjectId()` and `getSessionReference()` (returned by `SignedTokenAuthenticator` and `TokenAuthenticator`) |
 | `UserLookupInterface` | `lookup(string $identifier): ?CredentialRecordInterface` — login lookup port, accepted by `PasswordAuthenticator` |
 | `CredentialRecordInterface` | `getPasswordHash()`, `getSubject()` (`type:id`), `getClaims()` |
-| `SessionClaim` | Claim names `TENANT` / `ROLE` (default of `TokenAuthenticator`, key read by `Guard`) |
-| `RequestAttribute` | Request attribute names `SUBJECT` / `SUBJECT_ID` / `TENANT` / `SESSION` / `ROLE` for the authenticated session |
+| `SessionClaim` | Claim names `TENANT` / `ROLE` / `RIGHTS` (default of `TokenAuthenticator`, key read by `Guard`) |
+| `RequestAttribute` | Request attribute names `SUBJECT` / `SUBJECT_ID` / `TENANT` / `SESSION` / `ROLE` / `RIGHTS` for the authenticated session |
 | `SessionManagerInterface` | `create`, `refresh`, `invalidateByReference`, `invalidateAll` — implemented by `SessionManager` |
 | `TokenIssuerInterface` / `TokenRedeemerInterface` | `issue` / `peek`, `redeem` — implemented by `TokenIssuer` / `TokenRedeemer` |
 | `SessionResultInterface` / `IssuedTokenInterface` | getters (`getAccessToken`, `getRefreshToken`, `getSession` / `getPlain`, `getHashed`) — implemented by `SessionResult` / `IssuedToken` |
 | `RoleAwareAuthResultInterface` | `getRole(): ?string` — implemented by `TenantAuthResult` |
+| `RightsAwareAuthResultInterface` | `getRights(): list<string>` — implemented by `TenantAuthResult` |
 | `AuthServicesInterface` | `sessions()`, `tokenIssuer()`, `tokenRedeemer()`, `hasher()` — implemented by `AuthServices` |
 
 ### Interfaces (contracts 2.11)
@@ -452,6 +459,16 @@ The services implement the contract interfaces, so a kernel can wire and swap th
 - **Session expiry (v1.7, contracts 2.12).** `SessionInterface::getExpiresAt(): ?DateTimeImmutable` (`null` = does not expire) is implemented by `Data\Session` and returns the public `expiresAt` property, which stays unchanged. A session from `SessionManager::create()`/`refresh()` carries the expiry of its signed access token (`exp`). Consumers read the expiry through the contract, never from the class.
 - **`peek()`** on the redeemer: see "Issue and redeem one-time tokens".
 - **Role.** The claim `SessionClaim::ROLE` (`role`) of a signed token or stored token surfaces as `TenantAuthResult::getRole()` (`null` when the claim is absent or not a non-empty string); `TenantAuthResult` implements `RoleAwareAuthResultInterface`.
+- **Rights (contracts 2.16).** The claim `SessionClaim::RIGHTS` (`rights`) of a signed token or stored token surfaces as `TenantAuthResult::getRights()`; only a list of strings counts, anything else (missing, string, map, mixed list) is `[]`. `TenantAuthResult::success(…)` takes the rights as its last argument (default `[]`) and implements `RightsAwareAuthResultInterface`. Elements are `resource:action`, `resource:*` or `*`. The check is the closure `Handler\Authorization\HasRight`:
+
+```php
+use JardisSupport\Auth\Handler\Authorization\HasRight;
+
+$hasRight = new HasRight();
+$hasRight($result->getRights(), 'sales.process:approve');   // bool — '*' grants all, 'sales.process:*' grants the resource
+// an unparsable right throws InvalidArgumentException (Permission::from)
+```
+
 - **`AuthServices`** bundles the four services:
 
 ```php

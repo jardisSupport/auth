@@ -23,6 +23,7 @@ final class AuthenticateToken
         private readonly VerifyToken $verifyToken,
         private readonly string $tenantClaim,
         private readonly TokenType $expectedType,
+        private readonly ReadRightsClaim $readRightsClaim = new ReadRightsClaim(),
     ) {
     }
 
@@ -63,6 +64,7 @@ final class AuthenticateToken
             is_string($tenant) && $tenant !== '' ? $tenant : null,
             $reference,
             is_string($role) && $role !== '' ? $role : null,
+            ($this->readRightsClaim)($stored->getClaims()),
         );
     }
 }
