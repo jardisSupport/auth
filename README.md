@@ -443,11 +443,11 @@ The auth exceptions (`InvalidCredentialException`, `TokenExpiredException`, `Tok
 
 ## Kernel Integration
 
-Auth is wired directly — constructor injection, no framework hook. `DomainKernel` (the Koffer in `jardiscore/kernel`) exposes 11 accessors for cross-cutting infrastructure (cache, logger, database, HTTP client, mailer, filesystem, event dispatcher/registry), but no `auth()`: Auth is a support package you instantiate and wire yourself in your bounded context.
+`DomainKernel` (the Koffer in `jardiscore/kernel`) offers the services of this package through its `auth()` accessor (`?AuthServicesInterface`: `sessions()`, `tokenIssuer()`, `tokenRedeemer()`, `hasher()`). The kernel builds it from the ENV key `AUTH_TOKEN_KEY` (base64 of 32 raw bytes) on the same database connection as `dbConnection()`; without the key, or without this package installed, `auth()` is `null`. It is lazy: the first service call opens the connection. Details: the `jardiscore/kernel` README, section "Auth — `AUTH_TOKEN_KEY`".
 
-*(Earlier docs described this as "no service hook in `DomainApp`" — `DomainApp` was removed in the Kernel-Entkopplung refactor. The fact is unchanged, only the vocabulary: today's Koffer is `DomainKernel`, consumed by the generated `{Domain}Context`.)*
+Without the kernel, Auth is wired directly — constructor injection, no framework hook (`AuthServices::fromStore($store, $accessTokenKey)` or the single classes).
 
-- **TokenStore**: `DbTokenStore` on the DomainKernel database connection, or implement `TokenStoreInterface` yourself (Redis, ...)
+- **TokenStore**: `DbTokenStore` on the DomainKernel database connection (table DDL in `resources/sql/`), or implement `TokenStoreInterface` yourself (Redis, ...)
 - **Rights**: check the rights of an authenticated session with `HasRight` (`TenantAuthResult::getRights()`)
 
 ### ENV Variables (optional)
