@@ -8,16 +8,15 @@
 
 > Part of **[Jardis](https://jardis.io)** — the Domain-Driven Design platform for PHP. You model your domain; Jardis generates the production-ready hexagonal code (DTOs, Command/Query handlers, repositories, persistence). This package is part of the open-source foundation that generated code runs on.
 
-**Authentication and authorization without framework coupling.** A focused RBAC for PHP covering signed access tokens, opaque refresh tokens, session management, password hashing, and role-based access control — designed for DDD applications. No HTTP layer, no JWT, no third-party runtime dependencies beyond PHP built-ins and the Jardis packages `contracts` and `dbquery`. Pure support package.
+**Authentication and authorization without framework coupling.** A focused toolkit for PHP covering signed access tokens, opaque refresh tokens, session management, password hashing, and rights checks against token claims — designed for DDD applications. No HTTP layer, no JWT, no third-party runtime dependencies beyond PHP built-ins and the Jardis packages `contracts` and `dbquery`. Pure support package.
 
 ---
 
 ## Why This Package?
 
-- **Nine classes to learn** — `SessionManager`, `PasswordHasher`, `Guard`, `PasswordAuthenticator`, `SignedTokenAuthenticator`, `TokenAuthenticator`, `DbTokenStore`, `TokenIssuer`, `TokenRedeemer`. Everything else is data
+- **Eight classes to learn** — `SessionManager`, `PasswordHasher`, `PasswordAuthenticator`, `SignedTokenAuthenticator`, `TokenAuthenticator`, `DbTokenStore`, `TokenIssuer`, `TokenRedeemer`. Everything else is data
 - **Opaque tokens** — server-side state, SHA-256 hashed storage, no JWT complexity
 - **Token rotation** — automatic refresh with old-token revocation
-- **RBAC as Value Objects** — policies are immutable, defined in code, not in a database
 - **No third-party runtime dependencies** — PHP built-ins (`password_hash`, `random_bytes`, `hash`, `hash_equals`) plus the Jardis contract
 
 ---
@@ -85,37 +84,6 @@ if ($hasher->needsRehash($hash)) {
     $newHash = $hasher->hash('secret-password');
     // update stored hash
 }
-```
-
-### Authorize with RBAC
-
-```php
-use JardisSupport\Auth\Guard;
-use JardisSupport\Auth\Data\Policy;
-
-$policy = Policy::create()
-    ->role('admin')->allow('*')
-    ->role('editor')
-        ->allow('article:read', 'article:write', 'article:publish')
-        ->deny('article:delete')
-    ->role('viewer')->allow('article:read')
-    ->role('moderator')->includes('editor')->allow('comment:delete')
-    ->build();
-
-$guard = new Guard($policy);
-
-$guard->check($session, 'article:publish');     // true/false
-$guard->authorize($session, 'article:delete');  // throws UnauthorizedException
-
-// Multi-role sessions — first matching role wins
-$session = new Session(
-    subject: 'user:42',
-    tokenHash: $hash,
-    createdAt: new DateTimeImmutable(),
-    expiresAt: null,
-    metadata: ['role' => ['editor', 'moderator']],
-);
-$guard->check($session, 'comment:delete');  // true (moderator has permission)
 ```
 
 ### Authenticate with Password
@@ -311,22 +279,14 @@ $hasher = new PasswordHasher();
 | `TokenExpiredException` | Token has expired |
 | `TokenRevokedException` | Token was revoked |
 | `InvalidCredentialException` | Invalid credentials provided |
-| `UnauthorizedException` | Insufficient permissions (RBAC) |
 
 ```php
 use JardisSupport\Auth\Exception\TokenExpiredException;
-use JardisSupport\Auth\Exception\UnauthorizedException;
 
 try {
     $verifier($token, $storedToken, TokenType::Access);
 } catch (TokenExpiredException $e) {
     // Token expired — client should use refresh token
-}
-
-try {
-    $guard->authorize($session, 'admin:delete');
-} catch (UnauthorizedException $e) {
-    // Access denied
 }
 ```
 
@@ -334,7 +294,7 @@ try {
 
 ## Architecture
 
-The user sees nine orchestrators. Internally, each delegates to invokable handlers:
+The user sees eight orchestrators. Internally, each delegates to invokable handlers:
 
 ```
 SessionManager (Orchestrator)
@@ -377,18 +337,14 @@ PasswordHasher (Orchestrator)
   ├── Handler/Password/VerifyPassword       verify via password_verify()
   └── Handler/Password/CheckRehash          check via password_needs_rehash()
 
-Rights check (closure, used without Guard)
+Rights check (closure)
   └── Handler/Authorization/HasRight           right in a list of granted rights (`Permission::matches`)
-
-Guard (Orchestrator)
-  ├── Handler/Authorization/CheckPermission    check role(s) against policy
-  └── Handler/Authorization/AuthorizePermission check + throw on failure
 
 Data (Value Objects, Enums, Builder, Events)
   ├── Token, HashedToken, IssuedToken, TokenType
   ├── Session, SessionResult
   ├── Subject, Credential, CredentialType, AuthResult, AuthenticationResult
-  ├── Permission, Policy, PolicyBuilder
+  ├── Permission
   └── Event/ (AuthenticationSucceeded, AuthenticationFailed, SessionCreated,
        SessionRefreshed, SessionInvalidated, AllSessionsInvalidated)
 ```
@@ -401,7 +357,6 @@ Tests mirror the `src/` directory:
 
 ```
 tests/Integration/
-├── GuardTest.php                          ← src/Guard.php
 ├── SessionManagerTest.php                 ← src/SessionManager.php
 ├── PasswordHasherTest.php                 ← src/PasswordHasher.php
 ├── PasswordAuthenticatorTest.php          ← src/PasswordAuthenticator.php
@@ -414,7 +369,6 @@ tests/Integration/
 │   ├── CredentialTest.php                 ← src/Data/Credential.php
 │   ├── SubjectTest.php                    ← src/Data/Subject.php
 │   ├── PermissionTest.php                 ← src/Data/Permission.php
-│   ├── PolicyTest.php                     ← src/Data/Policy.php
 │   ├── TokenTest.php                      ← src/Data/Token.php
 │   └── HashedTokenTest.php                ← src/Data/HashedToken.php
 ├── RightsClaimTest.php                    ← claim `rights` → TenantAuthResult::getRights()
@@ -436,13 +390,12 @@ Requires `jardissupport/contracts` ^2.16 and `jardissupport/dbquery` ^1.1. Defin
 |-----------|---------|
 | `TokenStoreInterface` | Token persistence: store, find, revoke, deleteExpired |
 | `PasswordHasherInterface` | Hash, verify, needsRehash |
-| `GuardInterface` | Permission check + authorize |
 | `AuthenticatorInterface` | Authenticate credentials, return AuthResult |
 | `TenantAwareAuthResultInterface` | AuthResult plus `getTenant()` |
 | `SessionAwareAuthResultInterface` | TenantAware plus `getSubjectId()` and `getSessionReference()` (returned by `SignedTokenAuthenticator` and `TokenAuthenticator`) |
 | `UserLookupInterface` | `lookup(string $identifier): ?CredentialRecordInterface` — login lookup port, accepted by `PasswordAuthenticator` |
 | `CredentialRecordInterface` | `getPasswordHash()`, `getSubject()` (`type:id`), `getClaims()` |
-| `SessionClaim` | Claim names `TENANT` / `ROLE` / `RIGHTS` (default of `TokenAuthenticator`, key read by `Guard`) |
+| `SessionClaim` | Claim names `TENANT` / `ROLE` / `RIGHTS` (default of `TokenAuthenticator`) |
 | `RequestAttribute` | Request attribute names `SUBJECT` / `SUBJECT_ID` / `TENANT` / `SESSION` / `ROLE` / `RIGHTS` for the authenticated session |
 | `SessionManagerInterface` | `create`, `refresh`, `invalidateByReference`, `invalidateAll` — implemented by `SessionManager` |
 | `TokenIssuerInterface` / `TokenRedeemerInterface` | `issue` / `peek`, `redeem` — implemented by `TokenIssuer` / `TokenRedeemer` |
@@ -495,8 +448,7 @@ Auth is wired directly — constructor injection, no framework hook. `DomainKern
 *(Earlier docs described this as "no service hook in `DomainApp`" — `DomainApp` was removed in the Kernel-Entkopplung refactor. The fact is unchanged, only the vocabulary: today's Koffer is `DomainKernel`, consumed by the generated `{Domain}Context`.)*
 
 - **TokenStore**: `DbTokenStore` on the DomainKernel database connection, or implement `TokenStoreInterface` yourself (Redis, ...)
-- **Policy**: Define as value object in application layer
-- **Guard**: Instantiate in application layer, inject Policy
+- **Rights**: check the rights of an authenticated session with `HasRight` (`TenantAuthResult::getRights()`)
 
 ### ENV Variables (optional)
 
