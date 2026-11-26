@@ -9,6 +9,10 @@ use InvalidArgumentException;
 use JardisSupport\Auth\Data\HashedToken;
 use JardisSupport\Auth\Data\Token;
 use JardisSupport\Auth\DbTokenStore;
+use JardisSupport\Auth\Exception\AuthenticationException;
+use JardisSupport\Auth\SessionManager;
+use JardisSupport\Auth\TokenIssuer;
+use JardisSupport\Auth\TokenRedeemer;
 use JardisSupport\Auth\Tests\Support\TokenTable;
 use JardisSupport\Contract\Auth\TokenType;
 use JardisSupport\Contract\DbConnection\DbConnectionInterface;
@@ -189,5 +193,72 @@ abstract class DbTokenStoreTestCase extends TestCase
         self::assertNotNull($store->find($hashed->hash));
         self::assertNull($this->store->find($hashed->hash));
         $this->connection->pdo()->exec('DROP TABLE custom_tokens');
+    }
+
+    /** Contract A12-R1: a valid refresh token yields a new session and the old token is revoked. */
+    public function testRefreshWithValidRefreshTokenIssuesNewSessionAndRevokesOldToken(): void
+    {
+        $sessions = new SessionManager($this->store, str_repeat('k', 32));
+        $created = $sessions->create('user:7');
+        $oldHash = HashedToken::hashOf($created->refreshToken);
+
+        $refreshed = $sessions->refresh($created->refreshToken);
+
+        self::assertSame('user:7', $refreshed->session->subject);
+        self::assertNotSame($created->refreshToken, $refreshed->refreshToken);
+        self::assertTrue($this->store->find($oldHash)?->isRevoked());
+        self::assertFalse($this->store->find($refreshed->session->tokenHash)?->isRevoked());
+    }
+
+    /** Contract A12-R2: refresh() rejects a valid token of another kind before the revoke; the token stays valid. */
+    public function testRefreshRejectsAnInvitationTokenAndLeavesItUntouched(): void
+    {
+        $sessions = new SessionManager($this->store, str_repeat('k', 32));
+        $issued = (new TokenIssuer($this->store))->issue(TokenType::Invitation, 'invitation:9', 3600, ['tenant' => '5']);
+
+        try {
+            $sessions->refresh($issued->plain);
+            self::fail('expected AuthenticationException');
+        } catch (AuthenticationException $e) {
+            self::assertSame('Invalid refresh token', $e->getMessage());
+        }
+
+        $this->assertTokenUntouched($issued->plain, $issued->hashed->hash, TokenType::Invitation);
+    }
+
+    /** Contract A12-R2: the same for a password-reset token. */
+    public function testRefreshRejectsAPasswordResetTokenAndLeavesItUntouched(): void
+    {
+        $sessions = new SessionManager($this->store, str_repeat('k', 32));
+        $issued = (new TokenIssuer($this->store))->issue(TokenType::PasswordReset, 'user:3', 3600);
+
+        try {
+            $sessions->refresh($issued->plain);
+            self::fail('expected AuthenticationException');
+        } catch (AuthenticationException $e) {
+            self::assertSame('Invalid refresh token', $e->getMessage());
+        }
+
+        $this->assertTokenUntouched($issued->plain, $issued->hashed->hash, TokenType::PasswordReset);
+    }
+
+    /** Contract A12-R3: an unknown token is rejected as before. */
+    public function testRefreshRejectsAnUnknownToken(): void
+    {
+        $sessions = new SessionManager($this->store, str_repeat('k', 32));
+
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('Invalid refresh token');
+
+        $sessions->refresh('never-issued');
+    }
+
+    private function assertTokenUntouched(string $plain, string $hash, TokenType $type): void
+    {
+        $found = $this->store->find($hash);
+
+        self::assertNotNull($found);
+        self::assertFalse($found->isRevoked());
+        self::assertSame($type, (new TokenRedeemer($this->store))->peek($plain, $type)->getType());
     }
 }

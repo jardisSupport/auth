@@ -64,6 +64,9 @@ $result = (new SignedTokenAuthenticator($accessTokenKey))->authenticate(Credenti
 // Refresh — rotates tokens, revokes the old refresh token
 $newResult = $sessionManager->refresh($refreshToken);
 // $newResult->events contains SessionCreated + SessionRefreshed
+// Only a refresh token is accepted: an unknown token and a valid token of another kind (invitation,
+// password reset, ...) are rejected with AuthenticationException('Invalid refresh token'); a rejected token
+// is not revoked and stays valid.
 ```
 
 ### Hash & Verify Passwords
