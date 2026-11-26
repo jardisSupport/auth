@@ -13,7 +13,12 @@ use JardisSupport\Auth\Data\Subject;
 use JardisSupport\Contract\Auth\TokenType;
 use JardisSupport\Contract\Auth\TokenStoreInterface;
 
-/** Validates a refresh token, revokes it, and issues a new session with fresh access and refresh tokens. */
+/**
+ * Validates a refresh token, revokes it, and issues a new session with fresh access and refresh tokens.
+ *
+ * Only a refresh token is accepted: an unknown token and a valid token of another kind are both rejected with
+ * `AuthenticationException('Invalid refresh token')` before anything is revoked, so a rejected token stays valid.
+ */
 final class RefreshSession
 {
     /**
@@ -38,6 +43,9 @@ final class RefreshSession
      *     refreshToken: string,
      *     events: list<object>
      * }
+     * @throws AuthenticationException unknown token or a token that is not a refresh token
+     * @throws \JardisSupport\Auth\Exception\TokenExpiredException
+     * @throws \JardisSupport\Auth\Exception\TokenRevokedException
      */
     public function __invoke(string $refreshTokenValue): array
     {
@@ -48,7 +56,9 @@ final class RefreshSession
             throw new AuthenticationException('Invalid refresh token');
         }
 
-        ($this->verifyToken)($refreshTokenValue, $storedToken, TokenType::Refresh);
+        if (!($this->verifyToken)($refreshTokenValue, $storedToken, TokenType::Refresh)) {
+            throw new AuthenticationException('Invalid refresh token');
+        }
 
         $this->tokenStore->revoke($hash);
 
