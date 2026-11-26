@@ -105,6 +105,7 @@ final class SessionManagerTest extends TestCase
         self::assertSame($result->session->tokenHash, $result->events[0]->tokenHash);
     }
 
+    /** Contract A12-R1 */
     public function testRefreshRotatesTokenAndReturnsSessionResult(): void
     {
         // Arrange
@@ -123,6 +124,7 @@ final class SessionManagerTest extends TestCase
         self::assertNotSame($originalRefreshToken, $refreshed->refreshToken);
     }
 
+    /** Contract A12-R1 */
     public function testRefreshRevokesOldRefreshToken(): void
     {
         // Arrange
@@ -159,6 +161,7 @@ final class SessionManagerTest extends TestCase
         self::assertSame($refreshed->session->tokenHash, $refreshEvent->newTokenHash);
     }
 
+    /** Contract A12-R3 */
     public function testRefreshWithInvalidTokenThrowsAuthenticationException(): void
     {
         // Arrange
